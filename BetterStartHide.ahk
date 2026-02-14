@@ -200,16 +200,16 @@ OpenSettings(*) {
     edtDelay := SettingsGui.Add("Edit", "x150 y227 w60 Number", HideDelay)
     
     ; Gradual fade settings
-    SettingsGui.Add("GroupBox", "x10 y265 w280 r2.5", "Gradual Fade")
-    chkGradual := SettingsGui.Add("CheckBox", "x20 y290 w200 Checked" . (GradualFade ? 1 : 0), "Enable gradual fade on approach")
-    SettingsGui.Add("Text", "x20 y315 w120", "Fade Distance (px):")
-    edtFadeDist := SettingsGui.Add("Edit", "x150 y312 w60 Number", FadeDistance)
+    SettingsGui.Add("GroupBox", "x10 y265 w280 r3", "Gradual Fade")
+    chkGradual := SettingsGui.Add("CheckBox", "x20 y290 w250 Checked" . (GradualFade ? 1 : 0), "Enable gradual fade on approach")
+    SettingsGui.Add("Text", "x20 y320 w120", "Fade Distance (px):")
+    edtFadeDist := SettingsGui.Add("Edit", "x150 y317 w60 Number", FadeDistance)
     
     ; Buttons
-    SettingsGui.Add("Button", "x50 y355 w100 Default", "Save").OnEvent("Click", (*) => SaveAndClose())
-    SettingsGui.Add("Button", "x160 y355 w100", "Cancel").OnEvent("Click", (*) => SettingsGui.Destroy())
+    SettingsGui.Add("Button", "x50 y365 w100 Default", "Save").OnEvent("Click", (*) => SaveAndClose())
+    SettingsGui.Add("Button", "x160 y365 w100", "Cancel").OnEvent("Click", (*) => SettingsGui.Destroy())
     
-    SettingsGui.Show("w300 h390")
+    SettingsGui.Show("w300 h410")
     
     SaveAndClose() {
         ; Validate and save settings

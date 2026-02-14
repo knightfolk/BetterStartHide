@@ -21,7 +21,7 @@ BetterStartHide dims the Windows taskbar to near-invisibility when not in use, a
 
 ## Quick Start
 
-1. Download `BetterStartHide.exe`
+1. Download `BetterStartHide.exe` from [Releases](https://github.com/knightfolk/BetterStartHide/releases)
 2. Place it in a folder (e.g., `C:\BetterStartHide\`)
 3. Double-click to run
 4. Done! Your taskbar will dim automatically

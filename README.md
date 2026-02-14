@@ -1,5 +1,7 @@
 # BetterStartHide
 
+**Version 1.0** - Stable Release
+
 A better way to save your OLED from StartMenu burn-in.
 
 ## Features
@@ -68,6 +70,35 @@ Ahk2Exe /in "BetterStartHide.ahk" /out "BetterStartHide.exe"
 ```
 
 Or use the included `Compile.ahk` script if AutoHotkey v2 is installed.
+
+## Version History
+
+### Version 1.0 (Current) - Stable Release
+- All features complete and tested
+- Smart taskbar dimming with intelligent reveal
+- Configuration UI with all settings
+- Gradual fade on mouse approach
+- Custom icon support
+- Works regardless of window focus
+
+### Beta 3
+- Fixed settings GUI layout (Gradual Fade section)
+- Improved taskbar opacity handling with WinSetTransparent
+- Added CoordMode for screen-relative mouse coordinates
+- Added periodic refresh to maintain opacity
+
+### Beta 2
+- Added configuration UI accessible from tray icon
+- Added Compile.ahk with AutoHotkey detection
+- Added custom icon support for compiled executable
+- Fixed compiler base file detection
+- Fixed 32/64-bit DllCall compatibility
+
+### Beta 1
+- Initial release
+- Basic taskbar dim and reveal functionality
+- Velocity-based trigger detection
+- Tray icon menu with basic controls
 
 ## License
 

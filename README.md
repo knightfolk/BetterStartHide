@@ -1,6 +1,6 @@
 # BetterStartHide
 
-**Version 1.0** - Stable Release
+**Version 1.1** - Multi-Monitor Support
 
 A better way to save your OLED from StartMenu burn-in.
 
@@ -10,10 +10,12 @@ BetterStartHide dims the Windows taskbar to near-invisibility when not in use, a
 
 ### Features
 
-- **Smart Taskbar Dimming**: Dims the taskbar to near-invisibility when not in use
+- **Multi-Monitor Support**: Works with all monitors and taskbars (Windows 10+)
+- **Smart Taskbar Dimming**: Dims all taskbars to near-invisibility when not in use
 - **Intelligent Reveal**: Taskbar brightens when you need it:
   - Mouse hover over taskbar area
-  - Fast mouse movement toward bottom edge
+  - Fast mouse movement toward taskbar edge
+  - Works on any edge (bottom, top, left, right)
 - **Velocity Detection**: Uses mouse speed and direction to predict intent
 - **Gradual Fade**: Taskbar smoothly fades in as you approach (configurable)
 - **Configuration UI**: Full settings window accessible from tray icon
@@ -82,9 +84,17 @@ Settings are automatically saved to `Settings.ini`.
 |--------|-----|
 | Run | Double-click `BetterStartHide.exe` |
 | Settings | Right-click tray icon → Settings |
-| Show Taskbar | Right-click tray icon → Show Taskbar |
-| Dim Taskbar | Right-click tray icon → Dim Taskbar |
+| Show All Taskbars | Right-click tray icon → Show All Taskbars |
+| Dim All Taskbars | Right-click tray icon → Dim All Taskbars |
+| Debug Monitors | Right-click tray icon → Debug Monitors |
 | Exit | Right-click tray icon → Exit |
+
+### Multi-Monitor Notes
+
+- **All taskbars are controlled together**: When you move your mouse toward any taskbar edge, all taskbars will reveal/dim together
+- **Works with any taskbar position**: Taskbars can be on the bottom, top, left, or right edge of any monitor
+- **Automatic detection**: The app automatically detects when monitors are connected or disconnected
+- **Debug info**: Use "Debug Monitors" from the tray menu to see detailed information about detected monitors and taskbars
 
 ## For Developers
 
@@ -110,8 +120,15 @@ BetterStartHide.ahk
 
 ## Version History
 
-### Version 1.0 (Current) - Stable Release
-- All features complete and tested
+### Version 1.1 (Current) - Multi-Monitor Support
+- **Multi-monitor support**: Works with all monitors and taskbars
+- **Taskbar on any edge**: Supports taskbars on top, bottom, left, or right
+- **Automatic display detection**: Responds to monitor connect/disconnect
+- **Debug Monitors**: Tray menu option to view monitor configuration
+- **Per-monitor taskbar detection**: Finds both primary (Shell_TrayWnd) and secondary (Shell_SecondaryTrayWnd) taskbars
+- All features from Version 1.0
+
+### Version 1.0 - Stable Release
 - Smart taskbar dimming with intelligent reveal
 - Configuration UI with all settings
 - Gradual fade on mouse approach
@@ -139,10 +156,14 @@ BetterStartHide.ahk
 
 ## Roadmap
 
-### Version 1.1 (Planned)
-- Multi-monitor support
+### Version 1.2 (Planned)
+- Per-monitor opacity settings
 - Windows installer for easy setup
 - Automatic startup configuration
+- Taskbar auto-hide detection improvements
+
+### Version 2.0 (Future)
+- Desktop icon dimming feature
 
 ## License
 

@@ -6,6 +6,7 @@
 ; ============================================================================
 ; Dims the taskbar to near-invisibility and reveals it on mouse proximity
 ; or fast mouse movement toward the bottom edge.
+; Supports multi-monitor configurations.
 ; ============================================================================
 
 ; ============================================================================
@@ -27,14 +28,289 @@ global FadeDistance := 100      ; Pixels over which to fade in
 global LastX := 0
 global LastY := 0
 global LastTime := 0
-global ScreenHeight := A_ScreenHeight
-global TaskbarHwnd := 0
-global TaskbarHeight := 48      ; Will be updated dynamically
 global IsRevealed := false
 global LastRevealTime := 0
 global CurrentOpacity := 255
 global SettingsGui := 0
 global SettingsPath := A_ScriptDir "\Settings.ini"
+
+; ============================================================================
+; MULTI-MONITOR SUPPORT CLASSES
+; ============================================================================
+
+; Helper function to find which monitor contains a point (avoids scope issues with built-in)
+GetMonitorFromPoint(x, y) {
+    ; Iterate through all monitors to find which contains the point
+    Loop MonitorGetCount() {
+        MonitorGet(A_Index, &L, &T, &R, &B)
+        if (x >= L && x <= R && y >= T && y <= B) {
+            return A_Index
+        }
+    }
+    ; If not found, return primary monitor
+    return MonitorGetPrimary()
+}
+
+; -----------------------------------------------------------------------------
+; MonitorInfo Class - Holds all information about a single monitor
+; -----------------------------------------------------------------------------
+class MonitorInfo {
+    __New(monitorNum) {
+        ; Identity
+        this.Number := monitorNum
+        this.Name := MonitorGetName(monitorNum)
+        this.IsPrimary := (monitorNum = MonitorGetPrimary())
+        
+        ; Get full monitor bounds
+        MonitorGet(monitorNum, &L, &T, &R, &B)
+        this.Left := L
+        this.Top := T
+        this.Right := R
+        this.Bottom := B
+        this.Width := R - L
+        this.Height := B - T
+        
+        ; Get work area (excludes taskbar)
+        MonitorGetWorkArea(monitorNum, &WL, &WT, &WR, &WB)
+        this.WorkLeft := WL
+        this.WorkTop := WT
+        this.WorkRight := WR
+        this.WorkBottom := WB
+        this.WorkWidth := WR - WL
+        this.WorkHeight := WB - WT
+        
+        ; Taskbar information (derived from WorkArea vs FullArea)
+        this.TaskbarPosition := "None"
+        this.TaskbarSize := 0
+        this.TaskbarEdge := -1
+        this.TaskbarHwnd := 0
+        
+        ; Calculate taskbar info
+        this.CalculateTaskbarInfo()
+    }
+    
+    CalculateTaskbarInfo() {
+        ; Determine taskbar position by comparing work area to full area
+        if (this.WorkBottom < this.Bottom) {
+            this.TaskbarPosition := "Bottom"
+            this.TaskbarSize := this.Bottom - this.WorkBottom
+            this.TaskbarEdge := this.WorkBottom  ; Y coordinate of taskbar top
+        } else if (this.WorkTop > this.Top) {
+            this.TaskbarPosition := "Top"
+            this.TaskbarSize := this.WorkTop - this.Top
+            this.TaskbarEdge := this.WorkTop  ; Y coordinate of taskbar bottom
+        } else if (this.WorkLeft > this.Left) {
+            this.TaskbarPosition := "Left"
+            this.TaskbarSize := this.WorkLeft - this.Left
+            this.TaskbarEdge := this.WorkLeft  ; X coordinate of taskbar right
+        } else if (this.WorkRight < this.Right) {
+            this.TaskbarPosition := "Right"
+            this.TaskbarSize := this.Right - this.WorkRight
+            this.TaskbarEdge := this.WorkRight  ; X coordinate of taskbar left
+        } else {
+            this.TaskbarPosition := "None"
+            this.TaskbarSize := 0
+            this.TaskbarEdge := -1
+        }
+    }
+    
+    ContainsPoint(x, y) {
+        return (x >= this.Left && x <= this.Right && 
+                y >= this.Top && y <= this.Bottom)
+    }
+    
+    DistanceToTaskbar(x, y) {
+        switch this.TaskbarPosition {
+            case "Bottom":
+                ; Positive = above taskbar, Negative = over taskbar
+                return this.TaskbarEdge - y
+            case "Top":
+                ; Positive = below taskbar, Negative = over taskbar
+                return y - this.TaskbarEdge
+            case "Left":
+                ; Positive = right of taskbar, Negative = over taskbar
+                return x - this.TaskbarEdge
+            case "Right":
+                ; Positive = left of taskbar, Negative = over taskbar
+                return this.TaskbarEdge - x
+            default:
+                return 9999  ; No taskbar or unknown
+        }
+    }
+    
+    IsPointOverTaskbar(x, y) {
+        if (!this.ContainsPoint(x, y)) {
+            return false
+        }
+        
+        switch this.TaskbarPosition {
+            case "Bottom":
+                return y >= this.TaskbarEdge
+            case "Top":
+                return y <= this.TaskbarEdge
+            case "Left":
+                return x <= this.TaskbarEdge
+            case "Right":
+                return x >= this.TaskbarEdge
+            default:
+                return false
+        }
+    }
+    
+    ; Check if approaching taskbar (for velocity-based reveal)
+    IsApproachingTaskbar(deltaX, deltaY) {
+        switch this.TaskbarPosition {
+            case "Bottom":
+                return deltaY > 0  ; Moving down toward bottom taskbar
+            case "Top":
+                return deltaY < 0  ; Moving up toward top taskbar
+            case "Left":
+                return deltaX < 0  ; Moving left toward left taskbar
+            case "Right":
+                return deltaX > 0  ; Moving right toward right taskbar
+            default:
+                return false
+        }
+    }
+    
+    ; Get distance from the edge where taskbar is located
+    GetEdgeDistance(x, y) {
+        switch this.TaskbarPosition {
+            case "Bottom":
+                return this.Bottom - y
+            case "Top":
+                return y - this.Top
+            case "Left":
+                return x - this.Left
+            case "Right":
+                return this.Right - x
+            default:
+                return 9999
+        }
+    }
+}
+
+; -----------------------------------------------------------------------------
+; MonitorManager Class - Manages all monitors and taskbars
+; -----------------------------------------------------------------------------
+class MonitorManager {
+    static monitors := Map()
+    static lastRefresh := 0
+    static refreshInterval := 5000  ; ms - Periodic refresh interval
+    
+    static Init() {
+        this.Refresh()
+        ; Register for display change notifications (WM_DISPLAYCHANGE = 0x007E)
+        OnMessage(0x007E, (w, l, m, h) => this.OnDisplayChange())
+    }
+    
+    static OnDisplayChange() {
+        this.Refresh()
+        return 0
+    }
+    
+    static Refresh() {
+        this.monitors := Map()
+        
+        ; Build monitor info for all monitors
+        Loop MonitorGetCount() {
+            try {
+                mon := MonitorInfo(A_Index)
+                this.monitors[A_Index] := mon
+            }
+        }
+        
+        ; Find and map all taskbars
+        this.FindAllTaskbars()
+        
+        this.lastRefresh := A_TickCount
+    }
+    
+    static FindAllTaskbars() {
+        ; Find primary taskbar (Shell_TrayWnd)
+        primaryHwnd := WinExist("ahk_class Shell_TrayWnd")
+        if (primaryHwnd) {
+            primaryNum := MonitorGetPrimary()
+            if (this.monitors.Has(primaryNum)) {
+                this.monitors[primaryNum].TaskbarHwnd := primaryHwnd
+            }
+        }
+        
+        ; Find secondary taskbars (Shell_SecondaryTrayWnd) - Windows 10+
+        DetectHiddenWindows(true)
+        try {
+            secondaryList := WinGetList("ahk_class Shell_SecondaryTrayWnd")
+            for hwnd in secondaryList {
+                this.MapTaskbarToMonitor(hwnd)
+            }
+        }
+        DetectHiddenWindows(false)
+    }
+    
+    static MapTaskbarToMonitor(hwnd) {
+        try {
+            WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+            
+            ; Check each monitor to see which contains this taskbar
+            for monNum, mon in this.monitors {
+                ; For bottom taskbar: matches if at monitor bottom
+                if (Abs((y + h) - mon.Bottom) < 10 && x >= mon.Left && (x + w) <= mon.Right) {
+                    mon.TaskbarHwnd := hwnd
+                    return monNum
+                }
+                ; For top taskbar: matches if at monitor top
+                if (Abs(y - mon.Top) < 10 && x >= mon.Left && (x + w) <= mon.Right) {
+                    mon.TaskbarHwnd := hwnd
+                    return monNum
+                }
+                ; For left taskbar: matches if at monitor left
+                if (Abs(x - mon.Left) < 10 && y >= mon.Top && (y + h) <= mon.Bottom) {
+                    mon.TaskbarHwnd := hwnd
+                    return monNum
+                }
+                ; For right taskbar: matches if at monitor right
+                if (Abs((x + w) - mon.Right) < 10 && y >= mon.Top && (y + h) <= mon.Bottom) {
+                    mon.TaskbarHwnd := hwnd
+                    return monNum
+                }
+            }
+        }
+        return 0
+    }
+    
+    static GetMonitorAt(x, y) {
+        ; Lazy refresh check
+        if (A_TickCount - this.lastRefresh > this.refreshInterval) {
+            this.Refresh()
+        }
+        
+        ; Use module-level helper to avoid scope warning
+        monNum := GetMonitorFromPoint(x, y)
+        if (this.monitors.Has(monNum)) {
+            return this.monitors[monNum]
+        }
+        ; Fallback to first monitor
+        if (this.monitors.Count > 0) {
+            for _, mon in this.monitors {
+                return mon
+            }
+        }
+        return ""
+    }
+    
+    static GetCurrentMonitor() {
+        MouseGetPos(&x, &y)
+        return this.GetMonitorAt(x, y)
+    }
+    
+    static GetMonitorCount() {
+        return this.monitors.Count
+    }
+    
+    static GetAllMonitors() {
+        return this.monitors
+    }
+}
 
 ; ============================================================================
 ; INITIALIZATION
@@ -49,21 +325,30 @@ LoadSettings()
 ; Set up tray menu
 A_TrayMenu.Delete()
 A_TrayMenu.Add("Settings", OpenSettings)
-A_TrayMenu.Add("Show Taskbar", (*) => SetTaskbarOpacity(BrightOpacity))
-A_TrayMenu.Add("Dim Taskbar", (*) => SetTaskbarOpacity(DimmedOpacity))
+A_TrayMenu.Add("Show All Taskbars", (*) => SetAllTaskbarsOpacity(BrightOpacity))
+A_TrayMenu.Add("Dim All Taskbars", (*) => SetAllTaskbarsOpacity(DimmedOpacity))
+A_TrayMenu.Add()
+A_TrayMenu.Add("Debug Monitors", DebugMonitors)
 A_TrayMenu.Add()
 A_TrayMenu.Add("Exit", ExitScript)
-A_IconTip := "BetterStartHide`nSmart Taskbar Reveal"
+A_IconTip := "BetterStartHide`nSmart Taskbar Reveal (Multi-Monitor)"
 
-; Find taskbar
-TaskbarHwnd := WinExist("ahk_class Shell_TrayWnd")
-if (!TaskbarHwnd) {
-    MsgBox("Could not find taskbar!", "Error", 16)
-    ExitApp()
+; Initialize multi-monitor support
+MonitorManager.Init()
+
+; Check if we found any taskbars
+anyTaskbar := false
+for monNum, mon in MonitorManager.GetAllMonitors() {
+    if (mon.TaskbarHwnd) {
+        anyTaskbar := true
+        break
+    }
 }
 
-; Get taskbar height dynamically
-UpdateTaskbarInfo()
+if (!anyTaskbar) {
+    MsgBox("Could not find any taskbars!", "Error", 16)
+    ExitApp()
+}
 
 ; Get initial mouse position
 MouseGetPos(&initX, &initY)
@@ -71,9 +356,9 @@ LastX := initX
 LastY := initY
 LastTime := A_TickCount
 
-; Dim the taskbar initially
+; Dim all taskbars initially
 CurrentOpacity := BrightOpacity
-SetTaskbarOpacity(DimmedOpacity)
+SetAllTaskbarsOpacity(DimmedOpacity)
 
 ; Start monitoring
 SetTimer(MonitorMouse, CheckInterval)
@@ -81,26 +366,21 @@ SetTimer(MonitorMouse, CheckInterval)
 ; Start periodic refresh to maintain opacity (Windows may reset it)
 SetTimer(RefreshTaskbarOpacity, 100)
 
-TrayTip("BetterStartHide", "Taskbar dimmed. Move mouse toward bottom to reveal.`nRight-click tray icon for settings.")
+TrayTip("BetterStartHide", "Taskbar dimmed. Move mouse toward taskbar edge to reveal.`nRight-click tray icon for settings.")
 
 ; ============================================================================
 ; PERIODIC REFRESH
 ; ============================================================================
 
 RefreshTaskbarOpacity() {
-    global CurrentOpacity, TaskbarHwnd, DimmedOpacity, IsRevealed
+    global CurrentOpacity
     
-    ; Re-find taskbar if needed
-    if (!TaskbarHwnd || !DllCall("IsWindow", "Ptr", TaskbarHwnd)) {
-        TaskbarHwnd := WinExist("ahk_class Shell_TrayWnd")
+    ; Re-apply current opacity to ALL taskbars
+    for monNum, mon in MonitorManager.GetAllMonitors() {
+        if (mon.TaskbarHwnd && DllCall("IsWindow", "Ptr", mon.TaskbarHwnd)) {
+            WinSetTransparent(CurrentOpacity, "ahk_id " mon.TaskbarHwnd)
+        }
     }
-    
-    if (!TaskbarHwnd) {
-        return
-    }
-    
-    ; Re-apply opacity using WinSetTransparent - simpler and more reliable
-    WinSetTransparent(CurrentOpacity, "ahk_class Shell_TrayWnd")
 }
 
 ; ============================================================================
@@ -144,13 +424,6 @@ SaveSettings() {
     IniWrite(HideDelay, SettingsPath, "Settings", "HideDelay")
     IniWrite(GradualFade ? "true" : "false", SettingsPath, "Settings", "GradualFade")
     IniWrite(FadeDistance, SettingsPath, "Settings", "FadeDistance")
-}
-
-UpdateTaskbarInfo() {
-    global TaskbarHwnd, TaskbarHeight, ScreenHeight
-    
-    WinGetPos(, &tbY, , &tbH, "ahk_class Shell_TrayWnd")
-    TaskbarHeight := tbH
 }
 
 ; ============================================================================
@@ -241,25 +514,46 @@ OpenSettings(*) {
 }
 
 ; ============================================================================
+; DEBUG HELPERS
+; ============================================================================
+
+DebugMonitors(*) {
+    text := "=== Multi-Monitor Debug Info ===`n`n"
+    text .= "Monitor Count: " MonitorManager.GetMonitorCount() "`n`n"
+    
+    for monNum, mon in MonitorManager.GetAllMonitors() {
+        text .= "Monitor " mon.Number ": " mon.Name "`n"
+        text .= "  Primary: " (mon.IsPrimary ? "Yes" : "No") "`n"
+        text .= "  Full: (" mon.Left "," mon.Top ") to (" mon.Right "," mon.Bottom ") [" mon.Width "x" mon.Height "]`n"
+        text .= "  Work: (" mon.WorkLeft "," mon.WorkTop ") to (" mon.WorkRight "," mon.WorkBottom ") [" mon.WorkWidth "x" mon.WorkHeight "]`n"
+        text .= "  Taskbar: " mon.TaskbarPosition " (" mon.TaskbarSize "px)`n"
+        text .= "  Taskbar Edge: " mon.TaskbarEdge "`n"
+        text .= "  Taskbar Hwnd: " (mon.TaskbarHwnd ? mon.TaskbarHwnd : "Not found") "`n`n"
+    }
+    
+    MsgBox(text, "Monitor Debug Info", 64)
+}
+
+; ============================================================================
 ; TASKBAR OPACITY CONTROL
 ; ============================================================================
 
-SetTaskbarOpacity(opacity) {
-    global TaskbarHwnd, CurrentOpacity
-    
-    CurrentOpacity := opacity
-    
-    ; Re-find taskbar handle in case it changed (e.g., explorer restart)
-    if (!TaskbarHwnd || !DllCall("IsWindow", "Ptr", TaskbarHwnd)) {
-        TaskbarHwnd := WinExist("ahk_class Shell_TrayWnd")
-    }
-    
-    if (!TaskbarHwnd) {
+SetTaskbarOpacity(hwnd, opacity) {
+    if (!hwnd || !DllCall("IsWindow", "Ptr", hwnd)) {
         return
     }
+    WinSetTransparent(opacity, "ahk_id " hwnd)
+}
+
+SetAllTaskbarsOpacity(opacity) {
+    global CurrentOpacity
+    CurrentOpacity := opacity
     
-    ; Use WinSetTransparent - AHK's built-in method is more robust
-    WinSetTransparent(opacity, "ahk_class Shell_TrayWnd")
+    for monNum, mon in MonitorManager.GetAllMonitors() {
+        if (mon.TaskbarHwnd) {
+            SetTaskbarOpacity(mon.TaskbarHwnd, opacity)
+        }
+    }
 }
 
 ; Gradual opacity based on distance
@@ -278,35 +572,34 @@ CalculateGradualOpacity(distance) {
 }
 
 ; ============================================================================
-; SMART TASKBAR REVEAL
+; SMART TASKBAR REVEAL (Multi-Monitor Aware)
 ; ============================================================================
 
 MonitorMouse() {
     global LastX, LastY, LastTime
-    global ScreenHeight, TriggerPixels, MinVelocity, EdgeThreshold
-    global TaskbarHeight, IsRevealed, LastRevealTime, HideDelay
+    global TriggerPixels, MinVelocity, EdgeThreshold
+    global IsRevealed, LastRevealTime, HideDelay
     global GradualFade, FadeDistance, CurrentOpacity
     global DimmedOpacity, BrightOpacity
-    
-    ; Update taskbar info periodically (in case it resizes)
-    static lastUpdate := 0
-    if (A_TickCount - lastUpdate > 5000) {
-        UpdateTaskbarInfo()
-        lastUpdate := A_TickCount
-    }
     
     MouseGetPos(&currentX, &currentY)
     currentTime := A_TickCount
     
-    ; Calculate distance from taskbar (bottom of screen)
-    distanceFromBottom := ScreenHeight - currentY
-    taskbarTop := ScreenHeight - TaskbarHeight
-    distanceFromTaskbarTop := taskbarTop - currentY
+    ; Get current monitor info
+    mon := MonitorManager.GetMonitorAt(currentX, currentY)
+    if (!mon) {
+        return
+    }
+    
+    ; Calculate distance from taskbar using per-monitor info
+    distanceFromTaskbar := mon.DistanceToTaskbar(currentX, currentY)
+    isOverTaskbar := mon.IsPointOverTaskbar(currentX, currentY)
+    edgeDistance := mon.GetEdgeDistance(currentX, currentY)
     
     ; Check if mouse is over taskbar area
-    if (currentY >= taskbarTop && currentY <= ScreenHeight) {
+    if (isOverTaskbar) {
         if (!IsRevealed || CurrentOpacity != BrightOpacity) {
-            SetTaskbarOpacity(BrightOpacity)
+            SetAllTaskbarsOpacity(BrightOpacity)
             IsRevealed := true
         }
         LastRevealTime := currentTime
@@ -320,13 +613,13 @@ MonitorMouse() {
     
     ; Check if we should hide the taskbar (mouse left and delay passed)
     if (IsRevealed && (currentTime - LastRevealTime > HideDelay)) {
-        ; Mouse is not over taskbar, check if it left the bottom area
-        if (currentY < taskbarTop - 50) {  ; Mouse is well above taskbar
-            ; Handle fade out if gradual fade is enabled and mouse is in fade zone
-            if (GradualFade && distanceFromTaskbarTop > 0 && distanceFromTaskbarTop < FadeDistance) {
+        ; Mouse is not over taskbar, check if it left the taskbar area significantly
+        if (distanceFromTaskbar > 50) {  ; Mouse is well away from taskbar
+            ; Handle fade out if gradual fade is enabled
+            if (GradualFade && distanceFromTaskbar > 0 && distanceFromTaskbar < FadeDistance) {
                 ; Gradual fade will handle this below
             } else {
-                SetTaskbarOpacity(DimmedOpacity)
+                SetAllTaskbarsOpacity(DimmedOpacity)
                 IsRevealed := false
             }
         }
@@ -348,20 +641,20 @@ MonitorMouse() {
     
     velocity := Sqrt(deltaX * deltaX + deltaY * deltaY) / timeDelta
     
-    ; Trigger zone: within TriggerPixels of taskbar top edge
-    inTriggerZone := distanceFromTaskbarTop <= TriggerPixels && distanceFromTaskbarTop >= -TaskbarHeight
-    movingDown := deltaY > 0
+    ; Trigger zone: within TriggerPixels of taskbar edge
+    inTriggerZone := distanceFromTaskbar <= TriggerPixels && distanceFromTaskbar >= -mon.TaskbarSize
+    approachingTaskbar := mon.IsApproachingTaskbar(deltaX, deltaY)
     fastEnough := velocity >= MinVelocity
-    atEdge := distanceFromBottom <= EdgeThreshold
+    atEdge := edgeDistance <= EdgeThreshold
     
     ; Gradual fade - bidirectional based on distance from taskbar
-    if (GradualFade && distanceFromTaskbarTop > 0 && distanceFromTaskbarTop < FadeDistance) {
+    if (GradualFade && distanceFromTaskbar > 0 && distanceFromTaskbar < FadeDistance) {
         ; Calculate target opacity based on distance
-        newOpacity := CalculateGradualOpacity(distanceFromTaskbarTop)
+        newOpacity := CalculateGradualOpacity(distanceFromTaskbar)
         
         ; Apply the calculated opacity (handles both fade in and fade out)
         if (CurrentOpacity != newOpacity) {
-            SetTaskbarOpacity(newOpacity)
+            SetAllTaskbarsOpacity(newOpacity)
         }
         
         ; Update revealed state based on whether we're significantly visible
@@ -369,18 +662,18 @@ MonitorMouse() {
             IsRevealed := true
             LastRevealTime := currentTime
         }
-    } else if (GradualFade && distanceFromTaskbarTop >= FadeDistance && CurrentOpacity > DimmedOpacity) {
+    } else if (GradualFade && distanceFromTaskbar >= FadeDistance && CurrentOpacity > DimmedOpacity) {
         ; Mouse is outside fade zone but opacity is still elevated - fade out
-        SetTaskbarOpacity(DimmedOpacity)
+        SetAllTaskbarsOpacity(DimmedOpacity)
         if (IsRevealed && (currentTime - LastRevealTime > HideDelay)) {
             IsRevealed := false
         }
     }
     
     ; Reveal taskbar if conditions met
-    if ((inTriggerZone && fastEnough && movingDown) || atEdge) {
+    if ((inTriggerZone && fastEnough && approachingTaskbar) || atEdge) {
         if (!IsRevealed) {
-            SetTaskbarOpacity(BrightOpacity)
+            SetAllTaskbarsOpacity(BrightOpacity)
             IsRevealed := true
             LastRevealTime := currentTime
         }
@@ -396,10 +689,8 @@ MonitorMouse() {
 ; ============================================================================
 
 ExitScript(*) {
-    global TaskbarHwnd, BrightOpacity
-    
-    ; Restore full opacity before exiting
-    SetTaskbarOpacity(BrightOpacity)
+    ; Restore full opacity on all taskbars before exiting
+    SetAllTaskbarsOpacity(BrightOpacity)
     
     Sleep(200)
     ExitApp()

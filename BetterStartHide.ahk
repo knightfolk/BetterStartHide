@@ -465,50 +465,50 @@ OpenSettings(*) {
     SettingsGui.SetFont("s10")
     
     ; Opacity settings
-    SettingsGui.Add("GroupBox", "x10 y10 w280 r2", "Opacity (0-255)")
+    SettingsGui.Add("GroupBox", "x10 y10 w350 r2", "Opacity (0-255)")
     SettingsGui.Add("Text", "x20 y35 w120", "Dimmed Opacity:")
-    edtDimmed := SettingsGui.Add("Edit", "x150 y32 w60 Number", DimmedOpacity)
+    edtDimmed := SettingsGui.Add("Edit", "x180 y32 w60 Number", DimmedOpacity)
     SettingsGui.Add("UpDown", "Range0-255", DimmedOpacity)
     
     SettingsGui.Add("Text", "x20 y60 w120", "Bright Opacity:")
-    edtBright := SettingsGui.Add("Edit", "x150 y57 w60 Number", BrightOpacity)
+    edtBright := SettingsGui.Add("Edit", "x180 y57 w60 Number", BrightOpacity)
     SettingsGui.Add("UpDown", "Range0-255", BrightOpacity)
     
     ; Trigger settings
-    SettingsGui.Add("GroupBox", "x10 y95 w280 r2", "Trigger Settings")
-    SettingsGui.Add("Text", "x20 y120 w120", "Trigger Zone (px):")
-    edtTrigger := SettingsGui.Add("Edit", "x150 y117 w60 Number", TriggerPixels)
-    SettingsGui.Add("Text", "x220 y120", "from taskbar")
+    SettingsGui.Add("GroupBox", "x10 y95 w350 r2", "Trigger Settings")
+    SettingsGui.Add("Text", "x20 y120 w140", "Trigger Zone (px):")
+    edtTrigger := SettingsGui.Add("Edit", "x180 y117 w60 Number", TriggerPixels)
+    SettingsGui.Add("Text", "x260 y120", "from taskbar")
     
-    SettingsGui.Add("Text", "x20 y145 w120", "Min Velocity:")
-    edtVelocity := SettingsGui.Add("Edit", "x150 y142 w60 Number", MinVelocity)
-    SettingsGui.Add("Text", "x220 y145", "pixels/sec")
+    SettingsGui.Add("Text", "x20 y145 w140", "Min Velocity:")
+    edtVelocity := SettingsGui.Add("Edit", "x180 y142 w60 Number", MinVelocity)
+    SettingsGui.Add("Text", "x260 y145", "pixels/sec")
     
     ; Timing settings
-    SettingsGui.Add("GroupBox", "x10 y180 w280 r2", "Timing")
-    SettingsGui.Add("Text", "x20 y205 w120", "Check Interval (ms):")
-    edtInterval := SettingsGui.Add("Edit", "x150 y202 w60 Number", CheckInterval)
+    SettingsGui.Add("GroupBox", "x10 y180 w350 r2", "Timing")
+    SettingsGui.Add("Text", "x20 y205 w140", "Check Interval (ms):")
+    edtInterval := SettingsGui.Add("Edit", "x180 y202 w60 Number", CheckInterval)
     
-    SettingsGui.Add("Text", "x20 y230 w120", "Hide Delay (ms):")
-    edtDelay := SettingsGui.Add("Edit", "x150 y227 w60 Number", HideDelay)
+    SettingsGui.Add("Text", "x20 y230 w140", "Hide Delay (ms):")
+    edtDelay := SettingsGui.Add("Edit", "x180 y227 w60 Number", HideDelay)
     
     ; Gradual fade settings
-    SettingsGui.Add("GroupBox", "x10 y265 w280 r3", "Gradual Fade")
-    chkGradual := SettingsGui.Add("CheckBox", "x20 y290 w250 Checked" . (GradualFade ? 1 : 0), "Enable gradual fade on approach")
-    SettingsGui.Add("Text", "x20 y320 w120", "Fade Distance (px):")
-    edtFadeDist := SettingsGui.Add("Edit", "x150 y317 w60 Number", FadeDistance)
+    SettingsGui.Add("GroupBox", "x10 y265 w350 r3", "Gradual Fade")
+    chkGradual := SettingsGui.Add("CheckBox", "x20 y290 w320 Checked" . (GradualFade ? 1 : 0), "Enable gradual fade on approach")
+    SettingsGui.Add("Text", "x20 y320 w140", "Fade Distance (px):")
+    edtFadeDist := SettingsGui.Add("Edit", "x180 y317 w60 Number", FadeDistance)
     
     ; Monitor selection settings
     monCount := MonitorManager.GetMonitorCount()
     if (monCount > 1) {
-        SettingsGui.Add("GroupBox", "x10 y380 w280 r" . (monCount + 1), "Monitor Selection")
-        SettingsGui.Add("CheckBox", "x20 y405 w250 Checked" . (EnabledMonitors = "*" ? 1 : 0) . " vchkAllMonitors", "All Monitors").OnEvent("Click", OnAllMonitorsClick)
+        SettingsGui.Add("GroupBox", "x10 y380 w350 r" . (monCount + 1), "Monitor Selection (dim only selected monitors)")
+        SettingsGui.Add("CheckBox", "x20 y405 w320 Checked" . (EnabledMonitors = "*" ? 1 : 0) . " vchkAllMonitors", "All Monitors").OnEvent("Click", OnAllMonitorsClick)
         
         monitorChecks := []
         yPos := 430
         for monNum, mon in MonitorManager.GetAllMonitors() {
             isEnabled := (EnabledMonitors = "*" || InStr(EnabledMonitors, String(monNum)))
-            chk := SettingsGui.Add("CheckBox", "x30 y" . yPos . " w250 Checked" . (isEnabled ? 1 : 0) . " vchkMon" . monNum, 
+            chk := SettingsGui.Add("CheckBox", "x30 y" . yPos . " w320 Checked" . (isEnabled ? 1 : 0) . " vchkMon" . monNum, 
                 "Monitor " . monNum . (mon.IsPrimary ? " (Primary)" : "") . " - " . mon.TaskbarPosition)
             monitorChecks.Push({chk: chk, num: monNum})
             yPos += 25
@@ -517,11 +517,11 @@ OpenSettings(*) {
     
     ; Buttons (adjust position based on monitor count)
     btnY := monCount > 1 ? (380 + (monCount + 1) * 25 + 10) : 365
-    SettingsGui.Add("Button", "x50 y" . btnY . " w100 Default", "Save").OnEvent("Click", (*) => SaveAndClose())
-    SettingsGui.Add("Button", "x160 y" . btnY . " w100", "Cancel").OnEvent("Click", (*) => SettingsGui.Destroy())
+    SettingsGui.Add("Button", "x80 y" . btnY . " w100 Default", "Save").OnEvent("Click", (*) => SaveAndClose())
+    SettingsGui.Add("Button", "x190 y" . btnY . " w100", "Cancel").OnEvent("Click", (*) => SettingsGui.Destroy())
     
     guiHeight := btnY + 40
-    SettingsGui.Show("w300 h" . guiHeight)
+    SettingsGui.Show("w380 h" . guiHeight)
     
     OnAllMonitorsClick(ctrl, *) {
         global EnabledMonitors

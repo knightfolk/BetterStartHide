@@ -1,0 +1,5 @@
+# Compiled executable
+*.exe
+
+# User settings
+Settings.ini

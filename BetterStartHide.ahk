@@ -33,10 +33,26 @@ global LastRevealTime := 0
 global CurrentOpacity := 255
 global SettingsGui := 0
 global SettingsPath := A_ScriptDir "\Settings.ini"
+global EnabledMonitors := "*"  ; "*" = all monitors, or comma-separated list like "1,2"
 
 ; ============================================================================
 ; MULTI-MONITOR SUPPORT CLASSES
 ; ============================================================================
+
+; Helper function to check if a monitor is enabled
+IsMonitorEnabled(monNum) {
+    global EnabledMonitors
+    if (EnabledMonitors = "*") {
+        return true  ; All monitors enabled
+    }
+    ; Parse comma-separated list
+    Loop Parse, EnabledMonitors, "," {
+        if (A_LoopField = String(monNum)) {
+            return true
+        }
+    }
+    return false
+}
 
 ; Helper function to find which monitor contains a point (avoids scope issues with built-in)
 GetMonitorFromPoint(x, y) {
@@ -375,9 +391,9 @@ TrayTip("BetterStartHide", "Taskbar dimmed. Move mouse toward taskbar edge to re
 RefreshTaskbarOpacity() {
     global CurrentOpacity
     
-    ; Re-apply current opacity to ALL taskbars
+    ; Re-apply current opacity to enabled taskbars
     for monNum, mon in MonitorManager.GetAllMonitors() {
-        if (mon.TaskbarHwnd && DllCall("IsWindow", "Ptr", mon.TaskbarHwnd)) {
+        if (mon.TaskbarHwnd && DllCall("IsWindow", "Ptr", mon.TaskbarHwnd) && IsMonitorEnabled(monNum)) {
             WinSetTransparent(CurrentOpacity, "ahk_id " mon.TaskbarHwnd)
         }
     }
@@ -391,6 +407,7 @@ LoadSettings() {
     global SettingsPath
     global DimmedOpacity, BrightOpacity, TriggerPixels, MinVelocity
     global CheckInterval, EdgeThreshold, HideDelay, GradualFade, FadeDistance
+    global EnabledMonitors
     
     if (!FileExist(SettingsPath)) {
         return
@@ -407,6 +424,7 @@ LoadSettings() {
         HideDelay := Integer(IniRead(SettingsPath, "Settings", "HideDelay", HideDelay))
         GradualFade := IniRead(SettingsPath, "Settings", "GradualFade", "true") = "true"
         FadeDistance := Integer(IniRead(SettingsPath, "Settings", "FadeDistance", FadeDistance))
+        EnabledMonitors := IniRead(SettingsPath, "Settings", "EnabledMonitors", "*")
     }
 }
 
@@ -414,6 +432,7 @@ SaveSettings() {
     global SettingsPath
     global DimmedOpacity, BrightOpacity, TriggerPixels, MinVelocity
     global CheckInterval, EdgeThreshold, HideDelay, GradualFade, FadeDistance
+    global EnabledMonitors
     
     IniWrite(DimmedOpacity, SettingsPath, "Settings", "DimmedOpacity")
     IniWrite(BrightOpacity, SettingsPath, "Settings", "BrightOpacity")
@@ -424,6 +443,7 @@ SaveSettings() {
     IniWrite(HideDelay, SettingsPath, "Settings", "HideDelay")
     IniWrite(GradualFade ? "true" : "false", SettingsPath, "Settings", "GradualFade")
     IniWrite(FadeDistance, SettingsPath, "Settings", "FadeDistance")
+    IniWrite(EnabledMonitors, SettingsPath, "Settings", "EnabledMonitors")
 }
 
 ; ============================================================================
@@ -478,13 +498,41 @@ OpenSettings(*) {
     SettingsGui.Add("Text", "x20 y320 w120", "Fade Distance (px):")
     edtFadeDist := SettingsGui.Add("Edit", "x150 y317 w60 Number", FadeDistance)
     
-    ; Buttons
-    SettingsGui.Add("Button", "x50 y365 w100 Default", "Save").OnEvent("Click", (*) => SaveAndClose())
-    SettingsGui.Add("Button", "x160 y365 w100", "Cancel").OnEvent("Click", (*) => SettingsGui.Destroy())
+    ; Monitor selection settings
+    monCount := MonitorManager.GetMonitorCount()
+    if (monCount > 1) {
+        SettingsGui.Add("GroupBox", "x10 y380 w280 r" . (monCount + 1), "Monitor Selection")
+        SettingsGui.Add("CheckBox", "x20 y405 w250 Checked" . (EnabledMonitors = "*" ? 1 : 0) . " vchkAllMonitors", "All Monitors").OnEvent("Click", OnAllMonitorsClick)
+        
+        monitorChecks := []
+        yPos := 430
+        for monNum, mon in MonitorManager.GetAllMonitors() {
+            isEnabled := (EnabledMonitors = "*" || InStr(EnabledMonitors, String(monNum)))
+            chk := SettingsGui.Add("CheckBox", "x30 y" . yPos . " w250 Checked" . (isEnabled ? 1 : 0) . " vchkMon" . monNum, 
+                "Monitor " . monNum . (mon.IsPrimary ? " (Primary)" : "") . " - " . mon.TaskbarPosition)
+            monitorChecks.Push({chk: chk, num: monNum})
+            yPos += 25
+        }
+    }
     
-    SettingsGui.Show("w300 h410")
+    ; Buttons (adjust position based on monitor count)
+    btnY := monCount > 1 ? (380 + (monCount + 1) * 25 + 10) : 365
+    SettingsGui.Add("Button", "x50 y" . btnY . " w100 Default", "Save").OnEvent("Click", (*) => SaveAndClose())
+    SettingsGui.Add("Button", "x160 y" . btnY . " w100", "Cancel").OnEvent("Click", (*) => SettingsGui.Destroy())
+    
+    guiHeight := btnY + 40
+    SettingsGui.Show("w300 h" . guiHeight)
+    
+    OnAllMonitorsClick(ctrl, *) {
+        global EnabledMonitors
+        if (ctrl.Value = 1) {
+            ; Enable all monitors
+            EnabledMonitors := "*"
+        }
+    }
     
     SaveAndClose() {
+        global EnabledMonitors
         ; Validate and save settings
         try {
             DimmedOpacity := Integer(edtDimmed.Value)
@@ -499,6 +547,26 @@ OpenSettings(*) {
             ; Clamp values
             DimmedOpacity := Max(0, Min(255, DimmedOpacity))
             BrightOpacity := Max(0, Min(255, BrightOpacity))
+            
+            ; Read monitor selection
+            if (monCount > 1) {
+                allMonCtrl := SettingsGui["chkAllMonitors"]
+                if (allMonCtrl.Value = 1) {
+                    EnabledMonitors := "*"
+                } else {
+                    ; Build list from individual checkboxes
+                    enabledList := ""
+                    for mc in monitorChecks {
+                        if (mc.chk.Value = 1) {
+                            if (enabledList != "") {
+                                enabledList .= ","
+                            }
+                            enabledList .= String(mc.num)
+                        }
+                    }
+                    EnabledMonitors := enabledList = "" ? "*" : enabledList
+                }
+            }
             
             SaveSettings()
             
@@ -550,7 +618,7 @@ SetAllTaskbarsOpacity(opacity) {
     CurrentOpacity := opacity
     
     for monNum, mon in MonitorManager.GetAllMonitors() {
-        if (mon.TaskbarHwnd) {
+        if (mon.TaskbarHwnd && IsMonitorEnabled(monNum)) {
             SetTaskbarOpacity(mon.TaskbarHwnd, opacity)
         }
     }

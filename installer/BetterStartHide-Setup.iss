@@ -5,7 +5,7 @@
 ; ============================================================================
 
 #define AppName "BetterStartHide"
-#define AppVersion "1.1"
+#define AppVersion "1.3"
 #define AppPublisher "BetterStartHide"
 #define AppURL "https://github.com/knightfolk/BetterStartHide"
 #define AppExeName "BetterStartHide.exe"

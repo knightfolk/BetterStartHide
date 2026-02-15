@@ -1,6 +1,6 @@
 # BetterStartHide
 
-**Version 1.1** - Multi-Monitor Support
+**Version 1.3** - Simplified & Refined
 
 A better way to save your OLED from StartMenu burn-in.
 
@@ -12,13 +12,13 @@ BetterStartHide dims the Windows taskbar to near-invisibility when not in use, a
 
 - **Multi-Monitor Support**: Works with all monitors and taskbars (Windows 10+)
 - **Smart Taskbar Dimming**: Dims all taskbars to near-invisibility when not in use
-- **Intelligent Reveal**: Taskbar brightens when you need it:
-  - Mouse hover over taskbar area
-  - Fast mouse movement toward taskbar edge
+- **Intelligent Reveal**: Taskbar brightens when you approach it:
+  - Mouse proximity to taskbar area
   - Works on any edge (bottom, top, left, right)
-- **Velocity Detection**: Uses mouse speed and direction to predict intent
-- **Gradual Fade**: Taskbar smoothly fades in as you approach (configurable)
+- **Smooth Gradual Fade**: Taskbar smoothly fades in/out based on distance
+- **Simple & Reliable**: Pure distance-based opacity - no complex velocity detection
 - **Configuration UI**: Full settings window accessible from tray icon
+- **Dark Mode Support**: Settings UI adapts to your system theme
 - **No Dependencies**: Standalone executable - nothing else to install
 
 ## Quick Start
@@ -71,35 +71,26 @@ Right-click the tray icon and select **Settings** to open the configuration wind
 | Dimmed Opacity | 10 | Opacity when dimmed (0-255, 10 ≈ 4% visible) |
 | Bright Opacity | 255 | Opacity when revealed (255 = fully visible) |
 
-#### Trigger Settings
+#### Trigger & Fade
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Trigger Zone | 10 | Pixels from taskbar edge to trigger reveal |
-| Exit Zone | 50 | Distance from taskbar before fade-out starts (hysteresis) |
-| Min Velocity | 400 | Mouse speed threshold (pixels/sec) |
+| Trigger Zone | 10 | Pixels from taskbar edge that are always bright |
+| Fade Distance | 100 | Distance over which gradual fade occurs |
 
 #### Timing
 | Setting | Default | Description |
 |---------|---------|-------------|
 | Check Interval | 10 | Mouse polling interval (ms) |
-| Hide Delay | 500 | Time before hiding again (ms) |
-
-#### Fade In (On Approach)
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Gradual Fade | Enabled | Smoothly fade in as mouse approaches |
-| Fade Distance | 100 | Distance over which fade occurs (pixels) |
-
-#### Fade Out (On Leave)
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Fade Out | Enabled | Smooth fade-out animation when mouse leaves |
-| Fade Out Duration | 300 | Duration of fade-out animation (ms) |
 
 #### Behavior
 | Setting | Default | Description |
 |---------|---------|-------------|
 | Independent Taskbar Control | Enabled | Each monitor's taskbar reveals/hides independently based on mouse position |
+
+#### Appearance
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Theme | Auto | Settings UI theme (Auto/Light/Dark) |
 
 Settings are automatically saved to `%AppData%\BetterStartHide\Settings.ini`.
 
@@ -112,6 +103,7 @@ Settings are automatically saved to `%AppData%\BetterStartHide\Settings.ini`.
 | Show All Taskbars | Right-click tray icon → Show All Taskbars |
 | Dim All Taskbars | Right-click tray icon → Dim All Taskbars |
 | Debug Monitors | Right-click tray icon → Debug Monitors |
+| Donate | Right-click tray icon → Donate |
 | Exit | Right-click tray icon → Exit |
 
 ### Multi-Monitor Notes
@@ -145,46 +137,37 @@ BetterStartHide.ahk
 
 ## Version History
 
-### Version 1.1 (Current) - Multi-Monitor Support
+### Version 1.3 (Current) - Simplified & Refined
+- **Simplified reveal logic**: Removed velocity detection - now uses pure distance-based opacity
+- **Streamlined settings**: Removed Exit Zone, Min Velocity, Hide Delay, Gradual Fade, Fade Out options
+- **Distance-based opacity**: Taskbar brightness smoothly transitions based on mouse distance
+- **Dark mode support**: Settings UI now supports Auto/Light/Dark themes
+- **Restore Defaults**: Added button to reset all settings to defaults
+- **Donate option**: Added placeholder for future donation support
+- Cleaner, more maintainable codebase
+
+### Version 1.2 - Installer & Polish
+- Windows installer for easy setup
+- Automatic startup configuration
+- Per-monitor opacity settings
+
+### Version 1.1 - Multi-Monitor Support
 - **Multi-monitor support**: Works with all monitors and taskbars
 - **Taskbar on any edge**: Supports taskbars on top, bottom, left, or right
 - **Automatic display detection**: Responds to monitor connect/disconnect
 - **Debug Monitors**: Tray menu option to view monitor configuration
 - **Per-monitor taskbar detection**: Finds both primary (Shell_TrayWnd) and secondary (Shell_SecondaryTrayWnd) taskbars
-- All features from Version 1.0
 
 ### Version 1.0 - Stable Release
 - Smart taskbar dimming with intelligent reveal
 - Configuration UI with all settings
-- Gradual fade on mouse approach
 - Custom icon support
 - Works regardless of window focus
 
-### Beta 3
-- Fixed settings GUI layout (Gradual Fade section)
-- Improved taskbar opacity handling with WinSetTransparent
-- Added CoordMode for screen-relative mouse coordinates
-- Added periodic refresh to maintain opacity
-
-### Beta 2
-- Added configuration UI accessible from tray icon
-- Added Compile.ahk with AutoHotkey detection
-- Added custom icon support for compiled executable
-- Fixed compiler base file detection
-- Fixed 32/64-bit DllCall compatibility
-
-### Beta 1
-- Initial release
-- Basic taskbar dim and reveal functionality
-- Velocity-based trigger detection
-- Tray icon menu with basic controls
-
 ## Roadmap
 
-### Version 1.2 (Planned)
+### Version 1.4 (Planned)
 - Per-monitor opacity settings
-- Windows installer for easy setup
-- Automatic startup configuration
 - Taskbar auto-hide detection improvements
 
 ### Version 2.0 (Future)

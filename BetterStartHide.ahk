@@ -4,53 +4,52 @@
 ; ============================================================================
 ; BetterStartHide - Smart Taskbar Dim & Reveal
 ; ============================================================================
-; Dims the taskbar to near-invisibility and reveals it on mouse proximity
-; or fast mouse movement toward the bottom edge.
+; Dims the taskbar to near-invisibility and reveals it on mouse proximity.
 ; Supports multi-monitor configurations.
 ; ============================================================================
 
 ; ============================================================================
 ; VERSION
 ; ============================================================================
-global VERSION := "1.1"
+global VERSION := "1.3"
 
 ; ============================================================================
-; DEFAULT CONFIGURATION (overridden by Settings.ini if present)
+; DEFAULT CONFIGURATION VALUES (used for Restore Defaults)
 ; ============================================================================
-global DimmedOpacity := 10      ; Opacity when dimmed (0-255, 10 = ~4% visible)
-global BrightOpacity := 255     ; Opacity when revealed (255 = fully visible)
-global TriggerPixels := 10      ; Pixels from taskbar top edge to trigger reveal
-global ExitZone := 50           ; Distance from taskbar before fade-out starts (hysteresis)
-global MinVelocity := 400       ; Mouse speed threshold for reveal (reduced by 50%)
-global CheckInterval := 10      ; Mouse check interval in ms
-global EdgeThreshold := 5       ; Pixels from bottom to always trigger
-global HideDelay := 500         ; ms to wait before hiding again
-global GradualFade := true      ; Enable gradual fade on approach
-global FadeDistance := 100      ; Pixels over which to fade in
-global FadeOutEnabled := true   ; Enable smooth fade-out when leaving zone
-global FadeOutDuration := 300   ; Duration of fade-out animation (ms)
-global IndependentMode := true  ; Each taskbar operates independently based on mouse position
+global DEFAULT_DimmedOpacity := 10
+global DEFAULT_BrightOpacity := 255
+global DEFAULT_TriggerZone := 10
+global DEFAULT_FadeDistance := 100
+global DEFAULT_CheckInterval := 10
+global DEFAULT_EdgeThreshold := 5
+global DEFAULT_IndependentMode := true
+global DEFAULT_DarkMode := "auto"
+global DEFAULT_EnabledMonitors := "*"
 
 ; ============================================================================
-; GLOBAL VARIABLES
+; ACTIVE CONFIGURATION (overridden by Settings.ini if present)
+; ============================================================================
+global DimmedOpacity := DEFAULT_DimmedOpacity
+global BrightOpacity := DEFAULT_BrightOpacity
+global TriggerZone := DEFAULT_TriggerZone
+global FadeDistance := DEFAULT_FadeDistance
+global CheckInterval := DEFAULT_CheckInterval
+global EdgeThreshold := DEFAULT_EdgeThreshold
+global IndependentMode := DEFAULT_IndependentMode
+global DarkMode := DEFAULT_DarkMode
+global EnabledMonitors := DEFAULT_EnabledMonitors
+
+; ============================================================================
+; OTHER GLOBAL VARIABLES
 ; ============================================================================
 global LastX := 0
 global LastY := 0
-global LastTime := 0
 global SettingsGui := 0
 global SettingsPath := A_AppData "\BetterStartHide\Settings.ini"
-global EnabledMonitors := "*"  ; "*" = all monitors, or comma-separated list like "1,2"
+global DonateURL := ""  ; Placeholder - update with actual URL when ready
 
 ; Per-monitor state tracking (used when IndependentMode is true)
-global MonitorStates := Map()  ; monNum -> MonitorState object
-
-; Legacy global state (used when IndependentMode is false)
-global IsRevealed := false
-global LastRevealTime := 0
-global CurrentOpacity := 255
-global IsFadingOut := false
-global FadeOutStartTime := 0
-global FadeOutStartOpacity := 255
+global MonitorStates := Map()  ; monNum -> current opacity
 
 ; ============================================================================
 ; MULTI-MONITOR SUPPORT CLASSES
@@ -71,16 +70,14 @@ IsMonitorEnabled(monNum) {
     return false
 }
 
-; Helper function to find which monitor contains a point (avoids scope issues with built-in)
+; Helper function to find which monitor contains a point
 GetMonitorFromPoint(x, y) {
-    ; Iterate through all monitors to find which contains the point
     Loop MonitorGetCount() {
         MonitorGet(A_Index, &L, &T, &R, &B)
         if (x >= L && x <= R && y >= T && y <= B) {
             return A_Index
         }
     }
-    ; If not found, return primary monitor
     return MonitorGetPrimary()
 }
 
@@ -89,12 +86,10 @@ GetMonitorFromPoint(x, y) {
 ; -----------------------------------------------------------------------------
 class MonitorInfo {
     __New(monitorNum) {
-        ; Identity
         this.Number := monitorNum
         this.Name := MonitorGetName(monitorNum)
         this.IsPrimary := (monitorNum = MonitorGetPrimary())
         
-        ; Get full monitor bounds
         MonitorGet(monitorNum, &L, &T, &R, &B)
         this.Left := L
         this.Top := T
@@ -103,7 +98,6 @@ class MonitorInfo {
         this.Width := R - L
         this.Height := B - T
         
-        ; Get work area (excludes taskbar)
         MonitorGetWorkArea(monitorNum, &WL, &WT, &WR, &WB)
         this.WorkLeft := WL
         this.WorkTop := WT
@@ -112,34 +106,31 @@ class MonitorInfo {
         this.WorkWidth := WR - WL
         this.WorkHeight := WB - WT
         
-        ; Taskbar information (derived from WorkArea vs FullArea)
         this.TaskbarPosition := "None"
         this.TaskbarSize := 0
         this.TaskbarEdge := -1
         this.TaskbarHwnd := 0
         
-        ; Calculate taskbar info
         this.CalculateTaskbarInfo()
     }
     
     CalculateTaskbarInfo() {
-        ; Determine taskbar position by comparing work area to full area
         if (this.WorkBottom < this.Bottom) {
             this.TaskbarPosition := "Bottom"
             this.TaskbarSize := this.Bottom - this.WorkBottom
-            this.TaskbarEdge := this.WorkBottom  ; Y coordinate of taskbar top
+            this.TaskbarEdge := this.WorkBottom
         } else if (this.WorkTop > this.Top) {
             this.TaskbarPosition := "Top"
             this.TaskbarSize := this.WorkTop - this.Top
-            this.TaskbarEdge := this.WorkTop  ; Y coordinate of taskbar bottom
+            this.TaskbarEdge := this.WorkTop
         } else if (this.WorkLeft > this.Left) {
             this.TaskbarPosition := "Left"
             this.TaskbarSize := this.WorkLeft - this.Left
-            this.TaskbarEdge := this.WorkLeft  ; X coordinate of taskbar right
+            this.TaskbarEdge := this.WorkLeft
         } else if (this.WorkRight < this.Right) {
             this.TaskbarPosition := "Right"
             this.TaskbarSize := this.Right - this.WorkRight
-            this.TaskbarEdge := this.WorkRight  ; X coordinate of taskbar left
+            this.TaskbarEdge := this.WorkRight
         } else {
             this.TaskbarPosition := "None"
             this.TaskbarSize := 0
@@ -155,19 +146,15 @@ class MonitorInfo {
     DistanceToTaskbar(x, y) {
         switch this.TaskbarPosition {
             case "Bottom":
-                ; Positive = above taskbar, Negative = over taskbar
                 return this.TaskbarEdge - y
             case "Top":
-                ; Positive = below taskbar, Negative = over taskbar
                 return y - this.TaskbarEdge
             case "Left":
-                ; Positive = right of taskbar, Negative = over taskbar
                 return x - this.TaskbarEdge
             case "Right":
-                ; Positive = left of taskbar, Negative = over taskbar
                 return this.TaskbarEdge - x
             default:
-                return 9999  ; No taskbar or unknown
+                return 9999
         }
     }
     
@@ -175,7 +162,6 @@ class MonitorInfo {
         if (!this.ContainsPoint(x, y)) {
             return false
         }
-        
         switch this.TaskbarPosition {
             case "Bottom":
                 return y >= this.TaskbarEdge
@@ -190,23 +176,6 @@ class MonitorInfo {
         }
     }
     
-    ; Check if approaching taskbar (for velocity-based reveal)
-    IsApproachingTaskbar(deltaX, deltaY) {
-        switch this.TaskbarPosition {
-            case "Bottom":
-                return deltaY > 0  ; Moving down toward bottom taskbar
-            case "Top":
-                return deltaY < 0  ; Moving up toward top taskbar
-            case "Left":
-                return deltaX < 0  ; Moving left toward left taskbar
-            case "Right":
-                return deltaX > 0  ; Moving right toward right taskbar
-            default:
-                return false
-        }
-    }
-    
-    ; Get distance from the edge where taskbar is located
     GetEdgeDistance(x, y) {
         switch this.TaskbarPosition {
             case "Bottom":
@@ -224,50 +193,15 @@ class MonitorInfo {
 }
 
 ; -----------------------------------------------------------------------------
-; MonitorState Class - Per-monitor state for independent mode
-; -----------------------------------------------------------------------------
-class MonitorState {
-    __New() {
-        this.IsRevealed := false
-        this.LastRevealTime := 0
-        this.CurrentOpacity := 255
-        this.IsFadingOut := false
-        this.FadeOutStartTime := 0
-        this.FadeOutStartOpacity := 255
-    }
-}
-
-; Helper functions for per-monitor state management
-GetMonitorState(monNum) {
-    global MonitorStates
-    if (!MonitorStates.Has(monNum)) {
-        MonitorStates[monNum] := MonitorState()
-    }
-    return MonitorStates[monNum]
-}
-
-InitializeMonitorStates() {
-    global MonitorStates, DimmedOpacity
-    MonitorStates := Map()
-    
-    for monNum, mon in MonitorManager.GetAllMonitors() {
-        state := MonitorState()
-        state.CurrentOpacity := DimmedOpacity
-        MonitorStates[monNum] := state
-    }
-}
-
-; -----------------------------------------------------------------------------
 ; MonitorManager Class - Manages all monitors and taskbars
 ; -----------------------------------------------------------------------------
 class MonitorManager {
     static monitors := Map()
     static lastRefresh := 0
-    static refreshInterval := 5000  ; ms - Periodic refresh interval
+    static refreshInterval := 5000
     
     static Init() {
         this.Refresh()
-        ; Register for display change notifications (WM_DISPLAYCHANGE = 0x007E)
         OnMessage(0x007E, (w, l, m, h) => this.OnDisplayChange())
     }
     
@@ -278,23 +212,17 @@ class MonitorManager {
     
     static Refresh() {
         this.monitors := Map()
-        
-        ; Build monitor info for all monitors
         Loop MonitorGetCount() {
             try {
                 mon := MonitorInfo(A_Index)
                 this.monitors[A_Index] := mon
             }
         }
-        
-        ; Find and map all taskbars
         this.FindAllTaskbars()
-        
         this.lastRefresh := A_TickCount
     }
     
     static FindAllTaskbars() {
-        ; Find primary taskbar (Shell_TrayWnd)
         primaryHwnd := WinExist("ahk_class Shell_TrayWnd")
         if (primaryHwnd) {
             primaryNum := MonitorGetPrimary()
@@ -303,7 +231,6 @@ class MonitorManager {
             }
         }
         
-        ; Find secondary taskbars (Shell_SecondaryTrayWnd) - Windows 10+
         DetectHiddenWindows(true)
         try {
             secondaryList := WinGetList("ahk_class Shell_SecondaryTrayWnd")
@@ -317,25 +244,19 @@ class MonitorManager {
     static MapTaskbarToMonitor(hwnd) {
         try {
             WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-            
-            ; Check each monitor to see which contains this taskbar
             for monNum, mon in this.monitors {
-                ; For bottom taskbar: matches if at monitor bottom
                 if (Abs((y + h) - mon.Bottom) < 10 && x >= mon.Left && (x + w) <= mon.Right) {
                     mon.TaskbarHwnd := hwnd
                     return monNum
                 }
-                ; For top taskbar: matches if at monitor top
                 if (Abs(y - mon.Top) < 10 && x >= mon.Left && (x + w) <= mon.Right) {
                     mon.TaskbarHwnd := hwnd
                     return monNum
                 }
-                ; For left taskbar: matches if at monitor left
                 if (Abs(x - mon.Left) < 10 && y >= mon.Top && (y + h) <= mon.Bottom) {
                     mon.TaskbarHwnd := hwnd
                     return monNum
                 }
-                ; For right taskbar: matches if at monitor right
                 if (Abs((x + w) - mon.Right) < 10 && y >= mon.Top && (y + h) <= mon.Bottom) {
                     mon.TaskbarHwnd := hwnd
                     return monNum
@@ -346,17 +267,13 @@ class MonitorManager {
     }
     
     static GetMonitorAt(x, y) {
-        ; Lazy refresh check
         if (A_TickCount - this.lastRefresh > this.refreshInterval) {
             this.Refresh()
         }
-        
-        ; Use module-level helper to avoid scope warning
         monNum := GetMonitorFromPoint(x, y)
         if (this.monitors.Has(monNum)) {
             return this.monitors[monNum]
         }
-        ; Fallback to first monitor
         if (this.monitors.Count > 0) {
             for _, mon in this.monitors {
                 return mon
@@ -365,31 +282,130 @@ class MonitorManager {
         return ""
     }
     
-    static GetCurrentMonitor() {
-        MouseGetPos(&x, &y)
-        return this.GetMonitorAt(x, y)
+    static GetAllMonitors() {
+        return this.monitors
     }
     
     static GetMonitorCount() {
         return this.monitors.Count
     }
-    
-    static GetAllMonitors() {
-        return this.monitors
+}
+
+; ============================================================================
+; UI THEMING SUPPORT - Windows 11 Control Panel Style
+; ============================================================================
+
+; Light mode colors (default) - matches Windows Settings app
+global LIGHT_THEME := {
+    bgWindow: 0xF3F3F3,        ; Window background (light gray)
+    bgCard: 0xFFFFFF,          ; Card/section background
+    textPrimary: 0x1A1A1A,     ; Primary text
+    textSecondary: 0x5C5C5C,   ; Secondary/hint text
+    textLink: 0x0078D4,        ; Link/accent text
+    border: 0xE5E5E5,          ; Border color
+    separator: 0xEBEBEB,       ; Separator lines
+}
+
+; Dark mode colors - designed to work with AutoHotkey's white controls
+; We use a medium-dark gray that doesn't clash with white input fields
+global DARK_THEME := {
+    bgWindow: 0x3A3A3A,        ; Window background (medium-dark, works with white controls)
+    bgCard: 0x484848,          ; Card/section background
+    textPrimary: 0xF0F0F0,     ; Primary text (bright)
+    textSecondary: 0xC0C0C0,   ; Secondary/hint text
+    textLink: 0x60CDFF,        ; Link/accent text
+    border: 0x555555,          ; Border color
+    separator: 0x505050,       ; Separator lines
+}
+
+IsSystemDarkMode() {
+    try {
+        value := RegRead("HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "SystemUsesLightTheme", 1)
+        return (value = 0)
     }
+    return false
+}
+
+GetEffectiveDarkMode() {
+    global DarkMode
+    switch DarkMode {
+        case "dark":
+            return true
+        case "light":
+            return false
+        case "auto":
+        default:
+            return IsSystemDarkMode()
+    }
+}
+
+; Apply theme to GUI - Windows 11 style
+ApplyGuiTheme(gui) {
+    isDark := GetEffectiveDarkMode()
+    theme := isDark ? DARK_THEME : LIGHT_THEME
+    
+    static DWMWA_USE_IMMERSIVE_DARK_MODE := 20
+    static DWMWA_USE_IMMERSIVE_DARK_MODE_WIN10 := 19
+    
+    guiHwnd := gui.Hwnd
+    
+    ; Set title bar to match theme
+    value := isDark ? 1 : 0
+    result := DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", guiHwnd, "Int", DWMWA_USE_IMMERSIVE_DARK_MODE, "Int*", value, "Int", 4, "Int")
+    if (result != 0) {
+        DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", guiHwnd, "Int", DWMWA_USE_IMMERSIVE_DARK_MODE_WIN10, "Int*", value, "Int", 4, "Int")
+    }
+    
+    ; Set window background
+    gui.BackColor := theme.bgWindow
+}
+
+; ============================================================================
+; DONATE FUNCTIONALITY
+; ============================================================================
+
+OpenDonate(*) {
+    global DonateURL
+    if (DonateURL != "") {
+        try {
+            Run(DonateURL)
+        } catch as e {
+            MsgBox("Could not open donate link.`n`nError: " e.Message, "Error", 16)
+        }
+    } else {
+        MsgBox("Donate functionality coming soon!`n`nThank you for supporting BetterStartHide.", "Donate", 64)
+    }
+}
+
+; ============================================================================
+; SIMPLIFIED OPACITY CALCULATION
+; ============================================================================
+
+; Pure distance-based opacity - no state, no animation
+; TriggerZone = full bright zone right next to taskbar
+; FadeDistance = gradual fade zone beyond TriggerZone
+GetOpacityForDistance(distance) {
+    global TriggerZone, FadeDistance, DimmedOpacity, BrightOpacity
+    
+    if (distance <= TriggerZone) {
+        return BrightOpacity  ; In the bright zone
+    }
+    if (distance >= TriggerZone + FadeDistance) {
+        return DimmedOpacity  ; Beyond fade range
+    }
+    ; In fade zone - interpolate with ease-out curve
+    ratio := (distance - TriggerZone) / FadeDistance
+    ratio := ratio * ratio  ; Ease-out curve (faster brightening as you get closer)
+    return Round(BrightOpacity - (BrightOpacity - DimmedOpacity) * ratio)
 }
 
 ; ============================================================================
 ; INITIALIZATION
 ; ============================================================================
 
-; Ensure mouse coordinates are always in screen mode (not relative to active window)
 CoordMode("Mouse", "Screen")
-
-; Load settings from INI file
 LoadSettings()
 
-; Set up tray menu
 A_TrayMenu.Delete()
 A_TrayMenu.Add("Settings", OpenSettings)
 A_TrayMenu.Add("Show All Taskbars", (*) => SetAllTaskbarsOpacity(BrightOpacity))
@@ -397,14 +413,18 @@ A_TrayMenu.Add("Dim All Taskbars", (*) => SetAllTaskbarsOpacity(DimmedOpacity))
 A_TrayMenu.Add()
 A_TrayMenu.Add("Debug Monitors", DebugMonitors)
 A_TrayMenu.Add()
+A_TrayMenu.Add("Donate", OpenDonate)
+A_TrayMenu.Add()
 A_TrayMenu.Add("Exit", ExitScript)
 A_IconTip := "BetterStartHide`nSmart Taskbar Reveal (Multi-Monitor)"
 
-; Initialize multi-monitor support
 MonitorManager.Init()
 
-; Initialize per-monitor states
-InitializeMonitorStates()
+; Initialize per-monitor opacity tracking
+global MonitorStates := Map()
+for monNum, mon in MonitorManager.GetAllMonitors() {
+    MonitorStates[monNum] := DimmedOpacity
+}
 
 ; Check if we found any taskbars
 anyTaskbar := false
@@ -420,44 +440,32 @@ if (!anyTaskbar) {
     ExitApp()
 }
 
-; Get initial mouse position
 MouseGetPos(&initX, &initY)
 LastX := initX
 LastY := initY
-LastTime := A_TickCount
 
 ; Dim all taskbars initially
-CurrentOpacity := BrightOpacity
 SetAllTaskbarsOpacity(DimmedOpacity)
 
 ; Start monitoring
 SetTimer(MonitorMouse, CheckInterval)
 
-; Start periodic refresh to maintain opacity (Windows may reset it)
+; Periodic refresh to maintain opacity
 SetTimer(RefreshTaskbarOpacity, 100)
 
-TrayTip("BetterStartHide", "Taskbar dimmed. Move mouse toward taskbar edge to reveal.`nRight-click tray icon for settings.")
+TrayTip("BetterStartHide", "Taskbar dimmed. Move mouse toward taskbar to reveal.")
 
 ; ============================================================================
 ; PERIODIC REFRESH
 ; ============================================================================
 
 RefreshTaskbarOpacity() {
-    global IndependentMode, CurrentOpacity
+    global MonitorStates, IndependentMode, DimmedOpacity
     
-    if (IndependentMode) {
-        ; Re-apply per-monitor opacity in independent mode
-        for monNum, mon in MonitorManager.GetAllMonitors() {
-            if (mon.TaskbarHwnd && DllCall("IsWindow", "Ptr", mon.TaskbarHwnd) && IsMonitorEnabled(monNum)) {
-                state := GetMonitorState(monNum)
-                WinSetTransparent(state.CurrentOpacity, "ahk_id " mon.TaskbarHwnd)
-            }
-        }
-    } else {
-        ; Re-apply global opacity to all enabled taskbars
-        for monNum, mon in MonitorManager.GetAllMonitors() {
-            if (mon.TaskbarHwnd && DllCall("IsWindow", "Ptr", mon.TaskbarHwnd) && IsMonitorEnabled(monNum)) {
-                WinSetTransparent(CurrentOpacity, "ahk_id " mon.TaskbarHwnd)
+    for monNum, mon in MonitorManager.GetAllMonitors() {
+        if (mon.TaskbarHwnd && DllCall("IsWindow", "Ptr", mon.TaskbarHwnd) && IsMonitorEnabled(monNum)) {
+            if (IndependentMode) {
+                WinSetTransparent(MonitorStates.Get(monNum, DimmedOpacity), "ahk_id " mon.TaskbarHwnd)
             }
         }
     }
@@ -469,42 +477,31 @@ RefreshTaskbarOpacity() {
 
 LoadSettings() {
     global SettingsPath
-    global DimmedOpacity, BrightOpacity, TriggerPixels, ExitZone, MinVelocity
-    global CheckInterval, EdgeThreshold, HideDelay, GradualFade, FadeDistance
-    global FadeOutEnabled, FadeOutDuration, IndependentMode
-    global EnabledMonitors
+    global DimmedOpacity, BrightOpacity, TriggerZone, FadeDistance
+    global CheckInterval, EdgeThreshold, IndependentMode, DarkMode, EnabledMonitors
     
     if (!FileExist(SettingsPath)) {
         return
     }
     
     try {
-        ; Ensure all values are properly typed
         DimmedOpacity := Integer(IniRead(SettingsPath, "Settings", "DimmedOpacity", DimmedOpacity))
         BrightOpacity := Integer(IniRead(SettingsPath, "Settings", "BrightOpacity", BrightOpacity))
-        TriggerPixels := Integer(IniRead(SettingsPath, "Settings", "TriggerPixels", TriggerPixels))
-        ExitZone := Integer(IniRead(SettingsPath, "Settings", "ExitZone", ExitZone))
-        MinVelocity := Integer(IniRead(SettingsPath, "Settings", "MinVelocity", MinVelocity))
+        TriggerZone := Integer(IniRead(SettingsPath, "Settings", "TriggerZone", TriggerZone))
+        FadeDistance := Integer(IniRead(SettingsPath, "Settings", "FadeDistance", FadeDistance))
         CheckInterval := Integer(IniRead(SettingsPath, "Settings", "CheckInterval", CheckInterval))
         EdgeThreshold := Integer(IniRead(SettingsPath, "Settings", "EdgeThreshold", EdgeThreshold))
-        HideDelay := Integer(IniRead(SettingsPath, "Settings", "HideDelay", HideDelay))
-        GradualFade := IniRead(SettingsPath, "Settings", "GradualFade", "true") = "true"
-        FadeDistance := Integer(IniRead(SettingsPath, "Settings", "FadeDistance", FadeDistance))
-        FadeOutEnabled := IniRead(SettingsPath, "Settings", "FadeOutEnabled", "true") = "true"
-        FadeOutDuration := Integer(IniRead(SettingsPath, "Settings", "FadeOutDuration", FadeOutDuration))
         IndependentMode := IniRead(SettingsPath, "Settings", "IndependentMode", "true") = "true"
+        DarkMode := IniRead(SettingsPath, "Settings", "DarkMode", "auto")
         EnabledMonitors := IniRead(SettingsPath, "Settings", "EnabledMonitors", "*")
     }
 }
 
 SaveSettings() {
     global SettingsPath
-    global DimmedOpacity, BrightOpacity, TriggerPixels, ExitZone, MinVelocity
-    global CheckInterval, EdgeThreshold, HideDelay, GradualFade, FadeDistance
-    global FadeOutEnabled, FadeOutDuration, IndependentMode
-    global EnabledMonitors
+    global DimmedOpacity, BrightOpacity, TriggerZone, FadeDistance
+    global CheckInterval, EdgeThreshold, IndependentMode, DarkMode, EnabledMonitors
     
-    ; Ensure AppData directory exists
     SplitPath(SettingsPath, , &settingsDir)
     if (!DirExist(settingsDir)) {
         DirCreate(settingsDir)
@@ -512,18 +509,28 @@ SaveSettings() {
     
     IniWrite(DimmedOpacity, SettingsPath, "Settings", "DimmedOpacity")
     IniWrite(BrightOpacity, SettingsPath, "Settings", "BrightOpacity")
-    IniWrite(TriggerPixels, SettingsPath, "Settings", "TriggerPixels")
-    IniWrite(ExitZone, SettingsPath, "Settings", "ExitZone")
-    IniWrite(MinVelocity, SettingsPath, "Settings", "MinVelocity")
+    IniWrite(TriggerZone, SettingsPath, "Settings", "TriggerZone")
+    IniWrite(FadeDistance, SettingsPath, "Settings", "FadeDistance")
     IniWrite(CheckInterval, SettingsPath, "Settings", "CheckInterval")
     IniWrite(EdgeThreshold, SettingsPath, "Settings", "EdgeThreshold")
-    IniWrite(HideDelay, SettingsPath, "Settings", "HideDelay")
-    IniWrite(GradualFade ? "true" : "false", SettingsPath, "Settings", "GradualFade")
-    IniWrite(FadeDistance, SettingsPath, "Settings", "FadeDistance")
-    IniWrite(FadeOutEnabled ? "true" : "false", SettingsPath, "Settings", "FadeOutEnabled")
-    IniWrite(FadeOutDuration, SettingsPath, "Settings", "FadeOutDuration")
     IniWrite(IndependentMode ? "true" : "false", SettingsPath, "Settings", "IndependentMode")
+    IniWrite(DarkMode, SettingsPath, "Settings", "DarkMode")
     IniWrite(EnabledMonitors, SettingsPath, "Settings", "EnabledMonitors")
+}
+
+RestoreDefaultSettings() {
+    global DimmedOpacity, BrightOpacity, TriggerZone, FadeDistance
+    global CheckInterval, EdgeThreshold, IndependentMode, DarkMode, EnabledMonitors
+    
+    DimmedOpacity := DEFAULT_DimmedOpacity
+    BrightOpacity := DEFAULT_BrightOpacity
+    TriggerZone := DEFAULT_TriggerZone
+    FadeDistance := DEFAULT_FadeDistance
+    CheckInterval := DEFAULT_CheckInterval
+    EdgeThreshold := DEFAULT_EdgeThreshold
+    IndependentMode := DEFAULT_IndependentMode
+    DarkMode := DEFAULT_DarkMode
+    EnabledMonitors := DEFAULT_EnabledMonitors
 }
 
 ; ============================================================================
@@ -532,11 +539,9 @@ SaveSettings() {
 
 OpenSettings(*) {
     global SettingsGui
-    global DimmedOpacity, BrightOpacity, TriggerPixels, ExitZone, MinVelocity
-    global CheckInterval, EdgeThreshold, HideDelay, GradualFade, FadeDistance
-    global FadeOutEnabled, FadeOutDuration, IndependentMode
+    global DimmedOpacity, BrightOpacity, TriggerZone, FadeDistance
+    global CheckInterval, IndependentMode, DarkMode
     
-    ; Close existing settings window if open
     if (IsObject(SettingsGui)) {
         SettingsGui.Destroy()
     }
@@ -545,7 +550,6 @@ OpenSettings(*) {
     SettingsGui.Title := "BetterStartHide Settings v" . VERSION
     SettingsGui.SetFont("s10")
     
-    ; Track current Y position for dynamic layout
     currentY := 10
     sectionSpacing := 15
     
@@ -566,55 +570,26 @@ OpenSettings(*) {
     currentY += 30 + sectionSpacing
     
     ; ============================================
-    ; Trigger settings
+    ; Trigger & Fade settings (unified)
     ; ============================================
-    SettingsGui.Add("GroupBox", "x10 y" . currentY . " w370 r3.5", "Trigger Settings")
+    SettingsGui.Add("GroupBox", "x10 y" . currentY . " w370 r2.5", "Trigger & Fade (px)")
     currentY += 25
-    SettingsGui.Add("Text", "x20 y" . currentY . " w150", "Trigger Zone (px):")
-    edtTrigger := SettingsGui.Add("Edit", "x200 y" . (currentY - 3) . " w60 Number", TriggerPixels)
-    SettingsGui.Add("Text", "x270 y" . currentY . " w100", "from taskbar")
+    SettingsGui.Add("Text", "x20 y" . currentY . " w150", "Trigger Zone:")
+    edtTrigger := SettingsGui.Add("Edit", "x200 y" . (currentY - 3) . " w60 Number", TriggerZone)
+    SettingsGui.Add("Text", "x270 y" . currentY . " w100", "full bright zone")
     currentY += 28
-    SettingsGui.Add("Text", "x20 y" . currentY . " w150", "Exit Zone (px):")
-    edtExitZone := SettingsGui.Add("Edit", "x200 y" . (currentY - 3) . " w60 Number", ExitZone)
-    SettingsGui.Add("Text", "x270 y" . currentY . " w100", "fade-out starts")
-    currentY += 28
-    SettingsGui.Add("Text", "x20 y" . currentY . " w150", "Min Velocity:")
-    edtVelocity := SettingsGui.Add("Edit", "x200 y" . (currentY - 3) . " w60 Number", MinVelocity)
-    SettingsGui.Add("Text", "x270 y" . currentY . " w100", "pixels/sec")
+    SettingsGui.Add("Text", "x20 y" . currentY . " w150", "Fade Distance:")
+    edtFadeDist := SettingsGui.Add("Edit", "x200 y" . (currentY - 3) . " w60 Number", FadeDistance)
+    SettingsGui.Add("Text", "x270 y" . currentY . " w100", "gradual fade zone")
     currentY += 30 + sectionSpacing
     
     ; ============================================
     ; Timing settings
     ; ============================================
-    SettingsGui.Add("GroupBox", "x10 y" . currentY . " w370 r2.5", "Timing")
+    SettingsGui.Add("GroupBox", "x10 y" . currentY . " w370 r1.5", "Timing")
     currentY += 25
     SettingsGui.Add("Text", "x20 y" . currentY . " w150", "Check Interval (ms):")
     edtInterval := SettingsGui.Add("Edit", "x200 y" . (currentY - 3) . " w60 Number", CheckInterval)
-    currentY += 28
-    SettingsGui.Add("Text", "x20 y" . currentY . " w150", "Hide Delay (ms):")
-    edtDelay := SettingsGui.Add("Edit", "x200 y" . (currentY - 3) . " w60 Number", HideDelay)
-    currentY += 30 + sectionSpacing
-    
-    ; ============================================
-    ; Fade In settings (Gradual Fade)
-    ; ============================================
-    SettingsGui.Add("GroupBox", "x10 y" . currentY . " w370 r2.5", "Fade In (On Approach)")
-    currentY += 25
-    chkGradual := SettingsGui.Add("CheckBox", "x20 y" . currentY . " w340 Checked" . (GradualFade ? 1 : 0), "Enable gradual fade on approach")
-    currentY += 28
-    SettingsGui.Add("Text", "x20 y" . currentY . " w150", "Fade Distance (px):")
-    edtFadeDist := SettingsGui.Add("Edit", "x200 y" . (currentY - 3) . " w60 Number", FadeDistance)
-    currentY += 30 + sectionSpacing
-    
-    ; ============================================
-    ; Fade Out settings (NEW)
-    ; ============================================
-    SettingsGui.Add("GroupBox", "x10 y" . currentY . " w370 r2.5", "Fade Out (On Leave)")
-    currentY += 25
-    chkFadeOut := SettingsGui.Add("CheckBox", "x20 y" . currentY . " w340 Checked" . (FadeOutEnabled ? 1 : 0), "Enable smooth fade-out animation")
-    currentY += 28
-    SettingsGui.Add("Text", "x20 y" . currentY . " w150", "Fade Out Duration (ms):")
-    edtFadeOutDur := SettingsGui.Add("Edit", "x200 y" . (currentY - 3) . " w60 Number", FadeOutDuration)
     currentY += 30 + sectionSpacing
     
     ; ============================================
@@ -628,13 +603,31 @@ OpenSettings(*) {
     currentY += 30 + sectionSpacing
     
     ; ============================================
+    ; Appearance settings (Dark Mode)
+    ; ============================================
+    SettingsGui.Add("GroupBox", "x10 y" . currentY . " w370 r2", "Appearance")
+    currentY += 25
+    SettingsGui.Add("Text", "x20 y" . currentY . " w150", "Theme:")
+    cboDarkMode := SettingsGui.Add("ComboBox", "x200 y" . (currentY - 3) . " w170", ["Auto (System Default)", "Light Mode", "Dark Mode"])
+    switch DarkMode {
+        case "auto":
+            cboDarkMode.Choose(1)
+        case "light":
+            cboDarkMode.Choose(2)
+        case "dark":
+            cboDarkMode.Choose(3)
+        default:
+            cboDarkMode.Choose(1)
+    }
+    currentY += 30 + sectionSpacing
+    
+    ; ============================================
     ; Monitor selection settings
     ; ============================================
     monCount := MonitorManager.GetMonitorCount()
     monitorChecks := []
     
     if (monCount > 1) {
-        ; Calculate box height based on monitor count
         boxHeight := monCount + 1.5
         SettingsGui.Add("GroupBox", "x10 y" . currentY . " w370 r" . boxHeight, "Monitor Selection")
         currentY += 25
@@ -656,49 +649,73 @@ OpenSettings(*) {
     ; Buttons
     ; ============================================
     currentY += 5
-    SettingsGui.Add("Button", "x100 y" . currentY . " w100 Default", "Save").OnEvent("Click", (*) => SaveAndClose())
-    SettingsGui.Add("Button", "x210 y" . currentY . " w100", "Cancel").OnEvent("Click", (*) => SettingsGui.Destroy())
+    SettingsGui.Add("Button", "x10 y" . currentY . " w85 Default", "Save").OnEvent("Click", (*) => SaveAndClose())
+    SettingsGui.Add("Button", "x100 y" . currentY . " w85", "Cancel").OnEvent("Click", (*) => SettingsGui.Destroy())
+    SettingsGui.Add("Button", "x190 y" . currentY . " w85", "Reset").OnEvent("Click", (*) => RestoreDefaultsClick())
+    SettingsGui.Add("Button", "x290 y" . currentY . " w85", "Donate").OnEvent("Click", OpenDonate)
     currentY += 35
     
     guiHeight := currentY + 5
+    
+    ; Apply theme (title bar and background)
+    ApplyGuiTheme(SettingsGui)
+    
     SettingsGui.Show("w395 h" . guiHeight)
     
     OnAllMonitorsClick(ctrl, *) {
         global EnabledMonitors
         if (ctrl.Value = 1) {
-            ; Enable all monitors
             EnabledMonitors := "*"
         }
     }
     
+    RestoreDefaultsClick() {
+        edtDimmed.Value := DEFAULT_DimmedOpacity
+        edtBright.Value := DEFAULT_BrightOpacity
+        edtTrigger.Value := DEFAULT_TriggerZone
+        edtFadeDist.Value := DEFAULT_FadeDistance
+        edtInterval.Value := DEFAULT_CheckInterval
+        chkIndependent.Value := DEFAULT_IndependentMode ? 1 : 0
+        cboDarkMode.Choose(1)
+        
+        if (monCount > 1) {
+            chkAllMonitors.Value := 1
+            for mc in monitorChecks {
+                mc.chk.Value := 1
+            }
+        }
+        
+        MsgBox("Defaults restored. Click Save to apply.", "Reset", 64)
+    }
+    
     SaveAndClose() {
-        global EnabledMonitors, FadeOutEnabled, FadeOutDuration, IndependentMode, ExitZone
-        ; Validate and save settings
+        global EnabledMonitors, IndependentMode, DarkMode
         try {
             DimmedOpacity := Integer(edtDimmed.Value)
             BrightOpacity := Integer(edtBright.Value)
-            TriggerPixels := Integer(edtTrigger.Value)
-            ExitZone := Integer(edtExitZone.Value)
-            MinVelocity := Integer(edtVelocity.Value)
-            CheckInterval := Integer(edtInterval.Value)
-            HideDelay := Integer(edtDelay.Value)
-            GradualFade := chkGradual.Value = 1
+            TriggerZone := Integer(edtTrigger.Value)
             FadeDistance := Integer(edtFadeDist.Value)
-            FadeOutEnabled := chkFadeOut.Value = 1
-            FadeOutDuration := Integer(edtFadeOutDur.Value)
+            CheckInterval := Integer(edtInterval.Value)
             IndependentMode := chkIndependent.Value = 1
             
-            ; Clamp values
+            switch cboDarkMode.Value {
+                case 1:
+                    DarkMode := "auto"
+                case 2:
+                    DarkMode := "light"
+                case 3:
+                    DarkMode := "dark"
+                default:
+                    DarkMode := "auto"
+            }
+            
             DimmedOpacity := Max(0, Min(255, DimmedOpacity))
             BrightOpacity := Max(0, Min(255, BrightOpacity))
-            FadeOutDuration := Max(50, Min(2000, FadeOutDuration))
             
-            ; Read monitor selection
             if (monCount > 1) {
                 if (chkAllMonitors.Value = 1) {
                     EnabledMonitors := "*"
                 } else {
-                    ; Build list from individual checkboxes
                     enabledList := ""
                     for mc in monitorChecks {
                         if (mc.chk.Value = 1) {
@@ -713,8 +730,6 @@ OpenSettings(*) {
             }
             
             SaveSettings()
-            
-            ; Restart timer with new interval
             SetTimer(MonitorMouse, CheckInterval)
             
             MsgBox("Settings saved!", "Success", 64)
@@ -736,10 +751,8 @@ DebugMonitors(*) {
     for monNum, mon in MonitorManager.GetAllMonitors() {
         text .= "Monitor " mon.Number ": " mon.Name "`n"
         text .= "  Primary: " (mon.IsPrimary ? "Yes" : "No") "`n"
-        text .= "  Full: (" mon.Left "," mon.Top ") to (" mon.Right "," mon.Bottom ") [" mon.Width "x" mon.Height "]`n"
-        text .= "  Work: (" mon.WorkLeft "," mon.WorkTop ") to (" mon.WorkRight "," mon.WorkBottom ") [" mon.WorkWidth "x" mon.WorkHeight "]`n"
+        text .= "  Full: (" mon.Left "," mon.Top ") to (" mon.Right "," mon.Bottom ")`n"
         text .= "  Taskbar: " mon.TaskbarPosition " (" mon.TaskbarSize "px)`n"
-        text .= "  Taskbar Edge: " mon.TaskbarEdge "`n"
         text .= "  Taskbar Hwnd: " (mon.TaskbarHwnd ? mon.TaskbarHwnd : "Not found") "`n`n"
     }
     
@@ -757,218 +770,34 @@ SetTaskbarOpacity(hwnd, opacity) {
     WinSetTransparent(opacity, "ahk_id " hwnd)
 }
 
-; Set opacity for a specific monitor's taskbar (used in independent mode)
 SetMonitorOpacity(monNum, opacity) {
     global MonitorStates
     mon := MonitorManager.GetAllMonitors().Get(monNum, "")
     if (mon && mon.TaskbarHwnd && IsMonitorEnabled(monNum)) {
         SetTaskbarOpacity(mon.TaskbarHwnd, opacity)
-        state := GetMonitorState(monNum)
-        state.CurrentOpacity := opacity
+        MonitorStates[monNum] := opacity
     }
 }
 
-; Set opacity for all taskbars (respects IndependentMode)
 SetAllTaskbarsOpacity(opacity) {
-    global CurrentOpacity, IndependentMode
-    
-    if (IndependentMode) {
-        ; In independent mode, update all monitors but track per-monitor state
-        for monNum, mon in MonitorManager.GetAllMonitors() {
-            if (mon.TaskbarHwnd && IsMonitorEnabled(monNum)) {
-                SetTaskbarOpacity(mon.TaskbarHwnd, opacity)
-                state := GetMonitorState(monNum)
-                state.CurrentOpacity := opacity
-            }
+    global MonitorStates
+    for monNum, mon in MonitorManager.GetAllMonitors() {
+        if (mon.TaskbarHwnd && IsMonitorEnabled(monNum)) {
+            SetTaskbarOpacity(mon.TaskbarHwnd, opacity)
+            MonitorStates[monNum] := opacity
         }
-    } else {
-        ; In unified mode, use global state
-        CurrentOpacity := opacity
-        for monNum, mon in MonitorManager.GetAllMonitors() {
-            if (mon.TaskbarHwnd && IsMonitorEnabled(monNum)) {
-                SetTaskbarOpacity(mon.TaskbarHwnd, opacity)
-            }
-        }
-    }
-}
-
-; Gradual opacity based on distance
-CalculateGradualOpacity(distance) {
-    global DimmedOpacity, BrightOpacity, FadeDistance
-    
-    if (distance >= FadeDistance) {
-        return DimmedOpacity
-    }
-    
-    ; Ease-out interpolation (faster brightening as you get closer)
-    ratio := 1 - (distance / FadeDistance)
-    ratio := ratio * ratio  ; Square for ease-out curve
-    
-    return Round(DimmedOpacity + (BrightOpacity - DimmedOpacity) * ratio)
-}
-
-; Gradual opacity for use with Exit Zone offset
-; This calculates fade from BrightOpacity (at ExitZone) to DimmedOpacity (at FadeDistance)
-CalculateGradualOpacityWithOffset(adjustedDistance, adjustedFadeDistance) {
-    global DimmedOpacity, BrightOpacity
-    
-    if (adjustedFadeDistance <= 0) {
-        return DimmedOpacity
-    }
-    
-    if (adjustedDistance >= adjustedFadeDistance) {
-        return DimmedOpacity
-    }
-    
-    ; Ease-out interpolation
-    ratio := 1 - (adjustedDistance / adjustedFadeDistance)
-    ratio := ratio * ratio  ; Square for ease-out curve
-    
-    return Round(DimmedOpacity + (BrightOpacity - DimmedOpacity) * ratio)
-}
-
-; ============================================================================
-; FADE OUT ANIMATION
-; ============================================================================
-
-; Legacy global fade-out state (used when IndependentMode is false)
-global IsFadingOut := false
-global FadeOutStartTime := 0
-global FadeOutStartOpacity := 255
-
-; Start the fade-out animation (respects IndependentMode)
-StartFadeOut(monNum := 0) {
-    global IsFadingOut, FadeOutStartTime, FadeOutStartOpacity
-    global CurrentOpacity, FadeOutEnabled, IndependentMode
-    
-    if (!FadeOutEnabled) {
-        ; If fade-out is disabled, just set to dimmed immediately
-        if (IndependentMode && monNum > 0) {
-            SetMonitorOpacity(monNum, DimmedOpacity)
-        } else {
-            SetAllTaskbarsOpacity(DimmedOpacity)
-        }
-        return
-    }
-    
-    if (IndependentMode && monNum > 0) {
-        ; Per-monitor fade-out
-        state := GetMonitorState(monNum)
-        state.IsFadingOut := true
-        state.FadeOutStartTime := A_TickCount
-        state.FadeOutStartOpacity := state.CurrentOpacity
-    } else {
-        ; Global fade-out
-        IsFadingOut := true
-        FadeOutStartTime := A_TickCount
-        FadeOutStartOpacity := CurrentOpacity
-    }
-}
-
-; Check and update fade-out animation (respects IndependentMode)
-UpdateFadeOut(monNum := 0) {
-    global IsFadingOut, FadeOutStartTime, FadeOutStartOpacity
-    global CurrentOpacity, DimmedOpacity, FadeOutDuration, FadeOutEnabled
-    global IsRevealed, IndependentMode
-    
-    if (!FadeOutEnabled) {
-        return false  ; Not fading out
-    }
-    
-    if (IndependentMode && monNum > 0) {
-        ; Per-monitor fade-out
-        state := GetMonitorState(monNum)
-        if (!state.IsFadingOut) {
-            return false
-        }
-        
-        elapsed := A_TickCount - state.FadeOutStartTime
-        progress := elapsed / FadeOutDuration
-        
-        if (progress >= 1.0) {
-            ; Fade complete
-            SetMonitorOpacity(monNum, DimmedOpacity)
-            state.IsFadingOut := false
-            state.IsRevealed := false
-            return true
-        }
-        
-        ; Calculate current opacity with ease-out curve
-        easeProgress := 1 - ((1 - progress) ** 2)  ; Ease-out quadratic
-        newOpacity := Round(state.FadeOutStartOpacity - (state.FadeOutStartOpacity - DimmedOpacity) * easeProgress)
-        
-        if (newOpacity != state.CurrentOpacity) {
-            SetMonitorOpacity(monNum, newOpacity)
-        }
-        
-        return true
-    } else {
-        ; Global fade-out
-        if (!IsFadingOut) {
-            return false
-        }
-        
-        elapsed := A_TickCount - FadeOutStartTime
-        progress := elapsed / FadeOutDuration
-        
-        if (progress >= 1.0) {
-            ; Fade complete
-            SetAllTaskbarsOpacity(DimmedOpacity)
-            IsFadingOut := false
-            IsRevealed := false
-            return true
-        }
-        
-        ; Calculate current opacity with ease-out curve
-        easeProgress := 1 - ((1 - progress) ** 2)  ; Ease-out quadratic
-        newOpacity := Round(FadeOutStartOpacity - (FadeOutStartOpacity - DimmedOpacity) * easeProgress)
-        
-        if (newOpacity != CurrentOpacity) {
-            SetAllTaskbarsOpacity(newOpacity)
-        }
-        
-        return true
-    }
-}
-
-; Cancel fade-out (when mouse returns to taskbar area)
-CancelFadeOut(monNum := 0) {
-    global IsFadingOut, IndependentMode
-    
-    if (IndependentMode && monNum > 0) {
-        state := GetMonitorState(monNum)
-        state.IsFadingOut := false
-    } else {
-        IsFadingOut := false
-    }
-}
-
-; Check if a monitor is fading out
-IsMonitorFadingOut(monNum) {
-    global IsFadingOut, IndependentMode
-    
-    if (IndependentMode) {
-        state := GetMonitorState(monNum)
-        return state.IsFadingOut
-    } else {
-        return IsFadingOut
     }
 }
 
 ; ============================================================================
-; SMART TASKBAR REVEAL (Multi-Monitor Aware)
+; SMART TASKBAR REVEAL (Simplified - Pure Distance-Based)
 ; ============================================================================
 
 MonitorMouse() {
-    global LastX, LastY, LastTime
-    global TriggerPixels, MinVelocity, EdgeThreshold
-    global IsRevealed, LastRevealTime, HideDelay
-    global GradualFade, FadeDistance, CurrentOpacity
-    global DimmedOpacity, BrightOpacity
-    global IsFadingOut, IndependentMode
+    global LastX, LastY
+    global TriggerZone, EdgeThreshold
     
     MouseGetPos(&currentX, &currentY)
-    currentTime := A_TickCount
     
     ; Get current monitor info
     mon := MonitorManager.GetMonitorAt(currentX, currentY)
@@ -978,174 +807,28 @@ MonitorMouse() {
     
     monNum := mon.Number
     
-    ; Calculate distance from taskbar using per-monitor info
+    ; Calculate distance from taskbar
     distanceFromTaskbar := mon.DistanceToTaskbar(currentX, currentY)
     isOverTaskbar := mon.IsPointOverTaskbar(currentX, currentY)
     edgeDistance := mon.GetEdgeDistance(currentX, currentY)
     
-    ; Get per-monitor or global state based on mode
-    if (IndependentMode) {
-        state := GetMonitorState(monNum)
-        isRevealed := state.IsRevealed
-        lastReveal := state.LastRevealTime
-        currentOp := state.CurrentOpacity
-        isFading := state.IsFadingOut
-    } else {
-        isRevealed := IsRevealed
-        lastReveal := LastRevealTime
-        currentOp := CurrentOpacity
-        isFading := IsFadingOut
-    }
-    
-    ; Check if mouse is over taskbar area
+    ; Calculate target opacity based purely on distance
     if (isOverTaskbar) {
-        ; Cancel any ongoing fade-out
-        if (isFading) {
-            CancelFadeOut(monNum)
-        }
-        
-        if (!isRevealed || currentOp != BrightOpacity) {
-            if (IndependentMode) {
-                SetMonitorOpacity(monNum, BrightOpacity)
-                state.IsRevealed := true
-            } else {
-                SetAllTaskbarsOpacity(BrightOpacity)
-                IsRevealed := true
-            }
-        }
-        
-        if (IndependentMode) {
-            state.LastRevealTime := currentTime
-        } else {
-            LastRevealTime := currentTime
-        }
-        
-        ; Update last position and return
-        LastX := currentX
-        LastY := currentY
-        LastTime := currentTime
-        return
+        ; Over taskbar - always fully bright
+        targetOpacity := BrightOpacity
+    } else if (edgeDistance <= EdgeThreshold) {
+        ; At screen edge - trigger reveal
+        targetOpacity := BrightOpacity
+    } else {
+        ; Use distance-based opacity calculation
+        targetOpacity := GetOpacityForDistance(distanceFromTaskbar)
     }
     
-    ; Update fade-out animation if in progress
-    if (isFading) {
-        UpdateFadeOut(monNum)
-        ; Update last position and return during fade
-        LastX := currentX
-        LastY := currentY
-        LastTime := currentTime
-        return
-    }
-    
-    ; Check if we should hide the taskbar (mouse left and delay passed)
-    if (isRevealed && (currentTime - lastReveal > HideDelay)) {
-        ; Mouse is not over taskbar, check if it left beyond the exit zone
-        if (distanceFromTaskbar > ExitZone) {
-            ; Start fade-out animation (or instant if disabled)
-            if (GradualFade && distanceFromTaskbar > 0 && distanceFromTaskbar < FadeDistance) {
-                ; Gradual fade-in will handle this zone
-            } else {
-                StartFadeOut(monNum)
-            }
-        }
-    }
-    
-    ; Calculate velocity
-    timeDelta := (currentTime - LastTime) / 1000.0
-    
-    if (timeDelta < 0.005) {
-        ; Still update position even if time is too short
-        LastX := currentX
-        LastY := currentY
-        LastTime := currentTime
-        return
-    }
-    
-    deltaX := currentX - LastX
-    deltaY := currentY - LastY
-    
-    velocity := Sqrt(deltaX * deltaX + deltaY * deltaY) / timeDelta
-    
-    ; Trigger zone: within TriggerPixels of taskbar edge
-    inTriggerZone := distanceFromTaskbar <= TriggerPixels && distanceFromTaskbar >= -mon.TaskbarSize
-    approachingTaskbar := mon.IsApproachingTaskbar(deltaX, deltaY)
-    fastEnough := velocity >= MinVelocity
-    atEdge := edgeDistance <= EdgeThreshold
-    
-    ; Exit Zone hysteresis - keep taskbar FULLY BRIGHT within Exit Zone
-    ; Exit Zone is measured from the TOP of the taskbar (taskbar edge, distance = 0)
-    if (distanceFromTaskbar > 0 && distanceFromTaskbar <= ExitZone) {
-        ; Within Exit Zone - always keep bright (hysteresis prevents flickering)
-        if (currentOp != BrightOpacity) {
-            if (IndependentMode) {
-                SetMonitorOpacity(monNum, BrightOpacity)
-            } else {
-                SetAllTaskbarsOpacity(BrightOpacity)
-            }
-        }
-        
-        ; Mark as revealed
-        if (!isRevealed) {
-            if (IndependentMode) {
-                state.IsRevealed := true
-                state.LastRevealTime := currentTime
-            } else {
-                IsRevealed := true
-                LastRevealTime := currentTime
-            }
-        }
-    }
-    ; Gradual fade - only applies BEYOND Exit Zone (distance > ExitZone)
-    else if (GradualFade && distanceFromTaskbar > ExitZone && distanceFromTaskbar < FadeDistance) {
-        ; Calculate target opacity based on distance (adjusted for Exit Zone)
-        adjustedDistance := distanceFromTaskbar - ExitZone
-        adjustedFadeDistance := FadeDistance - ExitZone
-        newOpacity := CalculateGradualOpacityWithOffset(adjustedDistance, adjustedFadeDistance)
-        
-        ; Apply the calculated opacity
-        if (currentOp != newOpacity) {
-            if (IndependentMode) {
-                SetMonitorOpacity(monNum, newOpacity)
-            } else {
-                SetAllTaskbarsOpacity(newOpacity)
-            }
-        }
-    }
-    ; Beyond both Exit Zone and Fade Distance - start fade out
-    else if (GradualFade && distanceFromTaskbar >= FadeDistance && currentOp > DimmedOpacity && !isFading) {
-        if (isRevealed && (currentTime - lastReveal > HideDelay)) {
-            StartFadeOut(monNum)
-        }
-    }
-    ; Non-gradual fade mode - just use Exit Zone for hysteresis
-    else if (!GradualFade && distanceFromTaskbar > ExitZone && currentOp > DimmedOpacity && !isFading) {
-        if (isRevealed && (currentTime - lastReveal > HideDelay)) {
-            StartFadeOut(monNum)
-        }
-    }
-    
-    ; Reveal taskbar if conditions met
-    if ((inTriggerZone && fastEnough && approachingTaskbar) || atEdge) {
-        if (!isRevealed) {
-            ; Cancel any fade-out in progress
-            if (isFading) {
-                CancelFadeOut(monNum)
-            }
-            if (IndependentMode) {
-                SetMonitorOpacity(monNum, BrightOpacity)
-                state.IsRevealed := true
-                state.LastRevealTime := currentTime
-            } else {
-                SetAllTaskbarsOpacity(BrightOpacity)
-                IsRevealed := true
-                LastRevealTime := currentTime
-            }
-        }
-    }
+    ; Apply the calculated opacity
+    SetMonitorOpacity(monNum, targetOpacity)
     
     LastX := currentX
     LastY := currentY
-    LastTime := currentTime
 }
 
 ; ============================================================================
@@ -1153,9 +836,7 @@ MonitorMouse() {
 ; ============================================================================
 
 ExitScript(*) {
-    ; Restore full opacity on all taskbars before exiting
     SetAllTaskbarsOpacity(BrightOpacity)
-    
     Sleep(200)
     ExitApp()
 }

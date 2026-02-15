@@ -3,3 +3,6 @@
 
 # User settings
 Settings.ini
+
+# Installer output
+installer/output/

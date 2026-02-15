@@ -32,7 +32,7 @@ global IsRevealed := false
 global LastRevealTime := 0
 global CurrentOpacity := 255
 global SettingsGui := 0
-global SettingsPath := A_ScriptDir "\Settings.ini"
+global SettingsPath := A_AppData "\BetterStartHide\Settings.ini"
 global EnabledMonitors := "*"  ; "*" = all monitors, or comma-separated list like "1,2"
 
 ; ============================================================================
@@ -433,6 +433,12 @@ SaveSettings() {
     global DimmedOpacity, BrightOpacity, TriggerPixels, MinVelocity
     global CheckInterval, EdgeThreshold, HideDelay, GradualFade, FadeDistance
     global EnabledMonitors
+    
+    ; Ensure AppData directory exists
+    SplitPath(SettingsPath, , &settingsDir)
+    if (!DirExist(settingsDir)) {
+        DirCreate(settingsDir)
+    }
     
     IniWrite(DimmedOpacity, SettingsPath, "Settings", "DimmedOpacity")
     IniWrite(BrightOpacity, SettingsPath, "Settings", "BrightOpacity")

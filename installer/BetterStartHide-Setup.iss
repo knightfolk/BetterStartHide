@@ -54,8 +54,6 @@ Source: "..\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\{#AppIcon}"; DestDir: "{app}"; Flags: ignoreversion
 ; Documentation
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
-; Settings file (if exists, preserve user settings)
-Source: "..\Settings.ini"; DestDir: "{app}"; Flags: onlyifdoesntexist ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\{#AppIcon}"
@@ -75,15 +73,20 @@ Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   SettingsPath: string;
+  SettingsDir: string;
 begin
   if CurUninstallStep = usUninstall then
   begin
-    // Ask user if they want to delete settings
+    // Ask user if they want to delete settings (stored in AppData)
     if MsgBox('Do you want to remove your BetterStartHide settings?', mbConfirmation, MB_YESNO) = IDYES then
     begin
-      SettingsPath := ExpandConstant('{app}\Settings.ini');
+      SettingsDir := ExpandConstant('{userappdata}\BetterStartHide');
+      SettingsPath := SettingsDir + '\Settings.ini';
       if FileExists(SettingsPath) then
         DeleteFile(SettingsPath);
+      // Remove the directory if empty
+      if DirExists(SettingsDir) then
+        RemoveDir(SettingsDir);
     end;
   end;
 end;

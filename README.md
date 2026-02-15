@@ -23,6 +23,15 @@ BetterStartHide dims the Windows taskbar to near-invisibility when not in use, a
 
 ## Quick Start
 
+### Option 1: Installer (Recommended)
+
+1. Download `BetterStartHide-1.3-Setup.exe` from [Releases](https://github.com/knightfolk/BetterStartHide/releases)
+2. Run the installer
+3. (Optional) Check "Launch when Windows starts" during installation
+4. Done! Your taskbar will dim automatically
+
+### Option 2: Portable
+
 1. Download `BetterStartHide.exe` from [Releases](https://github.com/knightfolk/BetterStartHide/releases)
 2. Place it in a folder (e.g., `C:\BetterStartHide\`)
 3. Double-click to run
@@ -32,16 +41,26 @@ BetterStartHide dims the Windows taskbar to near-invisibility when not in use, a
 
 ## Installation
 
-### Recommended Setup
+### Using the Installer
 
-1. Create a dedicated folder for BetterStartHide:
+The installer provides the easiest setup experience:
+- Installs to your Program Files folder
+- Creates Start Menu shortcuts
+- Optionally adds to Windows Startup
+- Includes uninstaller
+
+### Portable Setup
+
+For portable use (e.g., on a USB drive):
+
+1. Create a dedicated folder:
    ```
    C:\BetterStartHide\
    ```
 
 2. Place `BetterStartHide.exe` in this folder
 
-3. (Optional) Add to Windows Startup:
+3. (Optional) Add to Windows Startup manually:
    - Press `Win + R`, type `shell:startup`, press Enter
    - Create a shortcut to `BetterStartHide.exe` in the Startup folder
    - The app will now start automatically when you log in

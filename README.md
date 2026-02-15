@@ -28,7 +28,7 @@ BetterStartHide dims the Windows taskbar to near-invisibility when not in use, a
 3. Double-click to run
 4. Done! Your taskbar will dim automatically
 
-> **Note**: A `Settings.ini` file will be created in the same folder on first run to store your preferences.
+> **Note**: A `Settings.ini` file will be created in `%AppData%\BetterStartHide\` on first run to store your preferences.
 
 ## Installation
 
@@ -65,18 +65,43 @@ Right-click the tray icon and select **Settings** to open the configuration wind
 
 ### Available Settings
 
+#### Opacity
 | Setting | Default | Description |
 |---------|---------|-------------|
 | Dimmed Opacity | 10 | Opacity when dimmed (0-255, 10 ≈ 4% visible) |
 | Bright Opacity | 255 | Opacity when revealed (255 = fully visible) |
-| Trigger Zone | 10 | Pixels from taskbar top edge to trigger reveal |
+
+#### Trigger Settings
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Trigger Zone | 10 | Pixels from taskbar edge to trigger reveal |
+| Exit Zone | 50 | Distance from taskbar before fade-out starts (hysteresis) |
 | Min Velocity | 400 | Mouse speed threshold (pixels/sec) |
+
+#### Timing
+| Setting | Default | Description |
+|---------|---------|-------------|
 | Check Interval | 10 | Mouse polling interval (ms) |
 | Hide Delay | 500 | Time before hiding again (ms) |
+
+#### Fade In (On Approach)
+| Setting | Default | Description |
+|---------|---------|-------------|
 | Gradual Fade | Enabled | Smoothly fade in as mouse approaches |
 | Fade Distance | 100 | Distance over which fade occurs (pixels) |
 
-Settings are automatically saved to `Settings.ini`.
+#### Fade Out (On Leave)
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Fade Out | Enabled | Smooth fade-out animation when mouse leaves |
+| Fade Out Duration | 300 | Duration of fade-out animation (ms) |
+
+#### Behavior
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Independent Taskbar Control | Enabled | Each monitor's taskbar reveals/hides independently based on mouse position |
+
+Settings are automatically saved to `%AppData%\BetterStartHide\Settings.ini`.
 
 ## Usage
 
@@ -91,7 +116,7 @@ Settings are automatically saved to `Settings.ini`.
 
 ### Multi-Monitor Notes
 
-- **All taskbars are controlled together**: When you move your mouse toward any taskbar edge, all taskbars will reveal/dim together
+- **Independent Taskbar Control**: By default, each monitor's taskbar reveals/hides independently based on mouse position (can be disabled in Settings to control all taskbars together)
 - **Works with any taskbar position**: Taskbars can be on the bottom, top, left, or right edge of any monitor
 - **Automatic detection**: The app automatically detects when monitors are connected or disconnected
 - **Debug info**: Use "Debug Monitors" from the tray menu to see detailed information about detected monitors and taskbars

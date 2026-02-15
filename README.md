@@ -44,9 +44,10 @@ BetterStartHide dims the Windows taskbar to near-invisibility when not in use, a
 ### Using the Installer
 
 The installer provides the easiest setup experience:
-- Installs to your Program Files folder
-- Creates Start Menu shortcuts
-- Optionally adds to Windows Startup
+- Installs to your Program Files folder (or choose a custom location)
+- Optional: Start Menu shortcuts (on by default)
+- Optional: Desktop shortcut (off by default)
+- Optional: Launch when Windows starts (off by default)
 - Includes uninstaller
 
 ### Portable Setup

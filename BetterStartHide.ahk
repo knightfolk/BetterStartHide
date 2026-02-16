@@ -11,7 +11,17 @@
 ; ============================================================================
 ; VERSION
 ; ============================================================================
-global VERSION := "1.3"
+global VERSION := "1.3.1"
+
+; ============================================================================
+; CONSTANTS
+; ============================================================================
+global NO_TASKBAR_DISTANCE := 9999          ; Returned when no taskbar is found
+global POSITION_TOLERANCE_PX := 10          ; Tolerance for position comparisons
+global MONITOR_REFRESH_INTERVAL_MS := 5000  ; Periodic monitor refresh interval
+global OPACITY_REFRESH_INTERVAL_MS := 100   ; Periodic opacity refresh interval
+global TRAY_UPDATE_INTERVAL_MS := 500       ; Tray icon state update interval
+global NEAR_DIM_BUFFER := 10                ; Buffer for near-dim state detection
 
 ; ============================================================================
 ; DEFAULT CONFIGURATION VALUES (used for Restore Defaults)
@@ -46,10 +56,13 @@ global LastX := 0
 global LastY := 0
 global SettingsGui := 0
 global SettingsPath := A_AppData "\BetterStartHide\Settings.ini"
-global DonateURL := ""  ; Placeholder - update with actual URL when ready
+global DonateURL := "https://github.com/sponsors/knightfolk"  ; GitHub Sponsors link
 
 ; Per-monitor state tracking (used when IndependentMode is true)
 global MonitorStates := Map()  ; monNum -> current opacity
+
+; State tracking for tray icon
+global AnyTaskbarRevealed := false
 
 ; ============================================================================
 ; MULTI-MONITOR SUPPORT CLASSES
@@ -115,6 +128,13 @@ class MonitorInfo {
     }
     
     CalculateTaskbarInfo() {
+        ; Check if taskbar appears to be auto-hidden
+        ; When auto-hidden, WorkArea equals full monitor area
+        this.IsAutoHide := (this.WorkBottom = this.Bottom && 
+                           this.WorkTop = this.Top &&
+                           this.WorkLeft = this.Left &&
+                           this.WorkRight = this.Right)
+        
         if (this.WorkBottom < this.Bottom) {
             this.TaskbarPosition := "Bottom"
             this.TaskbarSize := this.Bottom - this.WorkBottom
@@ -132,9 +152,36 @@ class MonitorInfo {
             this.TaskbarSize := this.Right - this.WorkRight
             this.TaskbarEdge := this.WorkRight
         } else {
+            ; No visible taskbar area difference - could be auto-hidden or no taskbar
+            ; Try to find taskbar window to determine position
             this.TaskbarPosition := "None"
             this.TaskbarSize := 0
             this.TaskbarEdge := -1
+            
+            ; If we have a taskbar hwnd, try to get its position for auto-hidden taskbars
+            if (this.TaskbarHwnd) {
+                try {
+                    WinGetPos(&tx, &ty, &tw, &th, "ahk_id " this.TaskbarHwnd)
+                    ; Determine position based on where taskbar window is
+                    if (Abs((ty + th) - this.Bottom) < POSITION_TOLERANCE_PX) {
+                        this.TaskbarPosition := "Bottom"
+                        this.TaskbarSize := th
+                        this.TaskbarEdge := this.Bottom - th
+                    } else if (Abs(ty - this.Top) < POSITION_TOLERANCE_PX) {
+                        this.TaskbarPosition := "Top"
+                        this.TaskbarSize := th
+                        this.TaskbarEdge := this.Top + th
+                    } else if (Abs(tx - this.Left) < POSITION_TOLERANCE_PX) {
+                        this.TaskbarPosition := "Left"
+                        this.TaskbarSize := tw
+                        this.TaskbarEdge := this.Left + tw
+                    } else if (Abs((tx + tw) - this.Right) < POSITION_TOLERANCE_PX) {
+                        this.TaskbarPosition := "Right"
+                        this.TaskbarSize := tw
+                        this.TaskbarEdge := this.Right - tw
+                    }
+                }
+            }
         }
     }
     
@@ -154,7 +201,7 @@ class MonitorInfo {
             case "Right":
                 return this.TaskbarEdge - x
             default:
-                return 9999
+                return NO_TASKBAR_DISTANCE
         }
     }
     
@@ -187,7 +234,7 @@ class MonitorInfo {
             case "Right":
                 return this.Right - x
             default:
-                return 9999
+                return NO_TASKBAR_DISTANCE
         }
     }
 }
@@ -198,7 +245,7 @@ class MonitorInfo {
 class MonitorManager {
     static monitors := Map()
     static lastRefresh := 0
-    static refreshInterval := 5000
+    static refreshInterval := MONITOR_REFRESH_INTERVAL_MS
     
     static Init() {
         this.Refresh()
@@ -245,19 +292,19 @@ class MonitorManager {
         try {
             WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
             for monNum, mon in this.monitors {
-                if (Abs((y + h) - mon.Bottom) < 10 && x >= mon.Left && (x + w) <= mon.Right) {
+                if (Abs((y + h) - mon.Bottom) < POSITION_TOLERANCE_PX && x >= mon.Left && (x + w) <= mon.Right) {
                     mon.TaskbarHwnd := hwnd
                     return monNum
                 }
-                if (Abs(y - mon.Top) < 10 && x >= mon.Left && (x + w) <= mon.Right) {
+                if (Abs(y - mon.Top) < POSITION_TOLERANCE_PX && x >= mon.Left && (x + w) <= mon.Right) {
                     mon.TaskbarHwnd := hwnd
                     return monNum
                 }
-                if (Abs(x - mon.Left) < 10 && y >= mon.Top && (y + h) <= mon.Bottom) {
+                if (Abs(x - mon.Left) < POSITION_TOLERANCE_PX && y >= mon.Top && (y + h) <= mon.Bottom) {
                     mon.TaskbarHwnd := hwnd
                     return monNum
                 }
-                if (Abs((x + w) - mon.Right) < 10 && y >= mon.Top && (y + h) <= mon.Bottom) {
+                if (Abs((x + w) - mon.Right) < POSITION_TOLERANCE_PX && y >= mon.Top && (y + h) <= mon.Bottom) {
                     mon.TaskbarHwnd := hwnd
                     return monNum
                 }
@@ -421,7 +468,6 @@ A_IconTip := "BetterStartHide`nSmart Taskbar Reveal (Multi-Monitor)"
 MonitorManager.Init()
 
 ; Initialize per-monitor opacity tracking
-global MonitorStates := Map()
 for monNum, mon in MonitorManager.GetAllMonitors() {
     MonitorStates[monNum] := DimmedOpacity
 }
@@ -451,7 +497,7 @@ SetAllTaskbarsOpacity(DimmedOpacity)
 SetTimer(MonitorMouse, CheckInterval)
 
 ; Periodic refresh to maintain opacity
-SetTimer(RefreshTaskbarOpacity, 100)
+SetTimer(RefreshTaskbarOpacity, OPACITY_REFRESH_INTERVAL_MS)
 
 TrayTip("BetterStartHide", "Taskbar dimmed. Move mouse toward taskbar to reveal.")
 
@@ -472,6 +518,30 @@ RefreshTaskbarOpacity() {
 }
 
 ; ============================================================================
+; TRAY ICON STATE MANAGEMENT
+; ============================================================================
+
+UpdateTrayIconState() {
+    global AnyTaskbarRevealed, MonitorStates, DimmedOpacity, BrightOpacity
+
+    ; Check if any taskbar is currently revealed (opacity > dimmed)
+    AnyTaskbarRevealed := false
+    for monNum, opacity in MonitorStates {
+        if (opacity > DimmedOpacity + NEAR_DIM_BUFFER) {
+            AnyTaskbarRevealed := true
+            break
+        }
+    }
+    
+    ; Update tray tooltip to show current state
+    if (AnyTaskbarRevealed) {
+        A_IconTip := "BetterStartHide`nState: Taskbar Revealed`n(Mouse near taskbar)"
+    } else {
+        A_IconTip := "BetterStartHide`nState: Taskbar Dimmed`n(Move mouse to reveal)"
+    }
+}
+
+; ============================================================================
 ; SETTINGS MANAGEMENT
 ; ============================================================================
 
@@ -479,11 +549,11 @@ LoadSettings() {
     global SettingsPath
     global DimmedOpacity, BrightOpacity, TriggerZone, FadeDistance
     global CheckInterval, EdgeThreshold, IndependentMode, DarkMode, EnabledMonitors
-    
+
     if (!FileExist(SettingsPath)) {
         return
     }
-    
+
     try {
         DimmedOpacity := Integer(IniRead(SettingsPath, "Settings", "DimmedOpacity", DimmedOpacity))
         BrightOpacity := Integer(IniRead(SettingsPath, "Settings", "BrightOpacity", BrightOpacity))
@@ -494,6 +564,14 @@ LoadSettings() {
         IndependentMode := IniRead(SettingsPath, "Settings", "IndependentMode", "true") = "true"
         DarkMode := IniRead(SettingsPath, "Settings", "DarkMode", "auto")
         EnabledMonitors := IniRead(SettingsPath, "Settings", "EnabledMonitors", "*")
+
+        ; Validate and clamp values to reasonable bounds
+        DimmedOpacity := Max(0, Min(255, DimmedOpacity))
+        BrightOpacity := Max(0, Min(255, BrightOpacity))
+        TriggerZone := Max(0, Min(500, TriggerZone))
+        FadeDistance := Max(0, Min(1000, FadeDistance))
+        CheckInterval := Max(1, Min(1000, CheckInterval))
+        EdgeThreshold := Max(0, Min(100, EdgeThreshold))
     }
 }
 
@@ -534,81 +612,90 @@ RestoreDefaultSettings() {
 }
 
 ; ============================================================================
-; SETTINGS GUI
+; SETTINGS GUI HELPER FUNCTIONS
 ; ============================================================================
 
-OpenSettings(*) {
-    global SettingsGui
-    global DimmedOpacity, BrightOpacity, TriggerZone, FadeDistance
-    global CheckInterval, IndependentMode, DarkMode
-    
-    if (IsObject(SettingsGui)) {
-        SettingsGui.Destroy()
-    }
-    
-    SettingsGui := Gui()
-    SettingsGui.Title := "BetterStartHide Settings v" . VERSION
-    SettingsGui.SetFont("s10")
-    
-    currentY := 10
-    sectionSpacing := 15
-    
-    ; ============================================
-    ; Opacity settings
-    ; ============================================
-    SettingsGui.Add("GroupBox", "x10 y" . currentY . " w370 r2.5", "Opacity (0-255)")
+; Section spacing constant for GUI layout
+global GUI_SECTION_SPACING := 15
+
+; Creates the Opacity settings section
+; Returns: {edtDimmed, edtBright}
+CreateOpacitySection(gui, &currentY) {
+    global DimmedOpacity, BrightOpacity
+
+    gui.Add("GroupBox", "x10 y" . currentY . " w370 r2.5", "Opacity (0-255)")
     currentY += 25
-    SettingsGui.Add("Text", "x20 y" . currentY . " w150", "Dimmed Opacity:")
-    edtDimmed := SettingsGui.Add("Edit", "x200 y" . (currentY - 3) . " w60 Number", DimmedOpacity)
-    SettingsGui.Add("UpDown", "Range0-255", DimmedOpacity)
-    SettingsGui.Add("Text", "x270 y" . currentY . " w100", "(0 = invisible)")
+    gui.Add("Text", "x20 y" . currentY . " w150", "Dimmed Opacity:")
+    edtDimmed := gui.Add("Edit", "x200 y" . (currentY - 3) . " w60 Number", DimmedOpacity)
+    gui.Add("UpDown", "Range0-255", DimmedOpacity)
+    gui.Add("Text", "x270 y" . currentY . " w100", "(0 = invisible)")
     currentY += 28
-    SettingsGui.Add("Text", "x20 y" . currentY . " w150", "Bright Opacity:")
-    edtBright := SettingsGui.Add("Edit", "x200 y" . (currentY - 3) . " w60 Number", BrightOpacity)
-    SettingsGui.Add("UpDown", "Range0-255", BrightOpacity)
-    SettingsGui.Add("Text", "x270 y" . currentY . " w100", "(255 = visible)")
-    currentY += 30 + sectionSpacing
-    
-    ; ============================================
-    ; Trigger & Fade settings (unified)
-    ; ============================================
-    SettingsGui.Add("GroupBox", "x10 y" . currentY . " w370 r2.5", "Trigger & Fade (px)")
+    gui.Add("Text", "x20 y" . currentY . " w150", "Bright Opacity:")
+    edtBright := gui.Add("Edit", "x200 y" . (currentY - 3) . " w60 Number", BrightOpacity)
+    gui.Add("UpDown", "Range0-255", BrightOpacity)
+    gui.Add("Text", "x270 y" . currentY . " w100", "(255 = visible)")
+    currentY += 30 + GUI_SECTION_SPACING
+
+    return {edtDimmed: edtDimmed, edtBright: edtBright}
+}
+
+; Creates the Trigger & Fade settings section
+; Returns: {edtTrigger, edtFadeDist}
+CreateTriggerSection(gui, &currentY) {
+    global TriggerZone, FadeDistance
+
+    gui.Add("GroupBox", "x10 y" . currentY . " w370 r2.5", "Trigger & Fade (px)")
     currentY += 25
-    SettingsGui.Add("Text", "x20 y" . currentY . " w150", "Trigger Zone:")
-    edtTrigger := SettingsGui.Add("Edit", "x200 y" . (currentY - 3) . " w60 Number", TriggerZone)
-    SettingsGui.Add("Text", "x270 y" . currentY . " w100", "full bright zone")
+    gui.Add("Text", "x20 y" . currentY . " w150", "Trigger Zone:")
+    edtTrigger := gui.Add("Edit", "x200 y" . (currentY - 3) . " w60 Number", TriggerZone)
+    gui.Add("Text", "x270 y" . currentY . " w100", "full bright zone")
     currentY += 28
-    SettingsGui.Add("Text", "x20 y" . currentY . " w150", "Fade Distance:")
-    edtFadeDist := SettingsGui.Add("Edit", "x200 y" . (currentY - 3) . " w60 Number", FadeDistance)
-    SettingsGui.Add("Text", "x270 y" . currentY . " w100", "gradual fade zone")
-    currentY += 30 + sectionSpacing
-    
-    ; ============================================
-    ; Timing settings
-    ; ============================================
-    SettingsGui.Add("GroupBox", "x10 y" . currentY . " w370 r1.5", "Timing")
+    gui.Add("Text", "x20 y" . currentY . " w150", "Fade Distance:")
+    edtFadeDist := gui.Add("Edit", "x200 y" . (currentY - 3) . " w60 Number", FadeDistance)
+    gui.Add("Text", "x270 y" . currentY . " w100", "gradual fade zone")
+    currentY += 30 + GUI_SECTION_SPACING
+
+    return {edtTrigger: edtTrigger, edtFadeDist: edtFadeDist}
+}
+
+; Creates the Timing settings section
+; Returns: edtInterval
+CreateTimingSection(gui, &currentY) {
+    global CheckInterval
+
+    gui.Add("GroupBox", "x10 y" . currentY . " w370 r1.5", "Timing")
     currentY += 25
-    SettingsGui.Add("Text", "x20 y" . currentY . " w150", "Check Interval (ms):")
-    edtInterval := SettingsGui.Add("Edit", "x200 y" . (currentY - 3) . " w60 Number", CheckInterval)
-    currentY += 30 + sectionSpacing
-    
-    ; ============================================
-    ; Behavior settings
-    ; ============================================
-    SettingsGui.Add("GroupBox", "x10 y" . currentY . " w370 r2", "Behavior")
+    gui.Add("Text", "x20 y" . currentY . " w150", "Check Interval (ms):")
+    edtInterval := gui.Add("Edit", "x200 y" . (currentY - 3) . " w60 Number", CheckInterval)
+    currentY += 30 + GUI_SECTION_SPACING
+
+    return edtInterval
+}
+
+; Creates the Behavior settings section
+; Returns: chkIndependent
+CreateBehaviorSection(gui, &currentY) {
+    global IndependentMode
+
+    gui.Add("GroupBox", "x10 y" . currentY . " w370 r2", "Behavior")
     currentY += 25
-    chkIndependent := SettingsGui.Add("CheckBox", "x20 y" . currentY . " w340 Checked" . (IndependentMode ? 1 : 0), "Independent Taskbar Control")
+    chkIndependent := gui.Add("CheckBox", "x20 y" . currentY . " w340 Checked" . (IndependentMode ? 1 : 0), "Independent Taskbar Control")
     currentY += 25
-    SettingsGui.Add("Text", "x30 y" . currentY . " w340", "(Each monitor's taskbar reveals/hides independently)")
-    currentY += 30 + sectionSpacing
-    
-    ; ============================================
-    ; Appearance settings (Dark Mode)
-    ; ============================================
-    SettingsGui.Add("GroupBox", "x10 y" . currentY . " w370 r2", "Appearance")
+    gui.Add("Text", "x30 y" . currentY . " w340", "(Each monitor's taskbar reveals/hides independently)")
+    currentY += 30 + GUI_SECTION_SPACING
+
+    return chkIndependent
+}
+
+; Creates the Appearance settings section
+; Returns: cboDarkMode
+CreateAppearanceSection(gui, &currentY) {
+    global DarkMode
+
+    gui.Add("GroupBox", "x10 y" . currentY . " w370 r2", "Appearance")
     currentY += 25
-    SettingsGui.Add("Text", "x20 y" . currentY . " w150", "Theme:")
-    cboDarkMode := SettingsGui.Add("ComboBox", "x200 y" . (currentY - 3) . " w170", ["Auto (System Default)", "Light Mode", "Dark Mode"])
+    gui.Add("Text", "x20 y" . currentY . " w150", "Theme:")
+    cboDarkMode := gui.Add("ComboBox", "x200 y" . (currentY - 3) . " w170", ["Auto (System Default)", "Light Mode", "Dark Mode"])
     switch DarkMode {
         case "auto":
             cboDarkMode.Choose(1)
@@ -619,85 +706,119 @@ OpenSettings(*) {
         default:
             cboDarkMode.Choose(1)
     }
-    currentY += 30 + sectionSpacing
-    
-    ; ============================================
-    ; Monitor selection settings
-    ; ============================================
+    currentY += 30 + GUI_SECTION_SPACING
+
+    return cboDarkMode
+}
+
+; Creates the Monitor Selection settings section (only if multiple monitors)
+; Returns: {chkAllMonitors, monitorChecks, monCount}
+CreateMonitorSection(gui, &currentY, onAllMonitorsClick) {
+    global EnabledMonitors
+
     monCount := MonitorManager.GetMonitorCount()
     monitorChecks := []
-    
+    chkAllMonitors := ""
+
     if (monCount > 1) {
         boxHeight := monCount + 1.5
-        SettingsGui.Add("GroupBox", "x10 y" . currentY . " w370 r" . boxHeight, "Monitor Selection")
+        gui.Add("GroupBox", "x10 y" . currentY . " w370 r" . boxHeight, "Monitor Selection")
         currentY += 25
-        chkAllMonitors := SettingsGui.Add("CheckBox", "x20 y" . currentY . " w340 Checked" . (EnabledMonitors = "*" ? 1 : 0) . " vchkAllMonitors", "All Monitors")
-        chkAllMonitors.OnEvent("Click", OnAllMonitorsClick)
+        chkAllMonitors := gui.Add("CheckBox", "x20 y" . currentY . " w340 Checked" . (EnabledMonitors = "*" ? 1 : 0) . " vchkAllMonitors", "All Monitors")
+        chkAllMonitors.OnEvent("Click", onAllMonitorsClick)
         currentY += 28
-        
+
         for monNum, mon in MonitorManager.GetAllMonitors() {
             isEnabled := (EnabledMonitors = "*" || InStr(EnabledMonitors, String(monNum)))
-            chk := SettingsGui.Add("CheckBox", "x30 y" . currentY . " w340 Checked" . (isEnabled ? 1 : 0) . " vchkMon" . monNum, 
+            chk := gui.Add("CheckBox", "x30 y" . currentY . " w340 Checked" . (isEnabled ? 1 : 0) . " vchkMon" . monNum,
                 "Monitor " . monNum . (mon.IsPrimary ? " (Primary)" : "") . " - " . mon.TaskbarPosition)
             monitorChecks.Push({chk: chk, num: monNum})
             currentY += 25
         }
-        currentY += sectionSpacing
+        currentY += GUI_SECTION_SPACING
     }
-    
-    ; ============================================
+
+    return {chkAllMonitors: chkAllMonitors, monitorChecks: monitorChecks, monCount: monCount}
+}
+
+; ============================================================================
+; SETTINGS GUI
+; ============================================================================
+
+OpenSettings(*) {
+    global SettingsGui
+    global DimmedOpacity, BrightOpacity, TriggerZone, FadeDistance
+    global CheckInterval, IndependentMode, DarkMode, EnabledMonitors
+
+    if (IsObject(SettingsGui)) {
+        SettingsGui.Destroy()
+    }
+
+    SettingsGui := Gui()
+    SettingsGui.Title := "BetterStartHide Settings v" . VERSION
+    SettingsGui.SetFont("s10")
+
+    currentY := 10
+
+    ; Create sections using helper functions
+    opacity := CreateOpacitySection(SettingsGui, &currentY)
+    trigger := CreateTriggerSection(SettingsGui, &currentY)
+    edtInterval := CreateTimingSection(SettingsGui, &currentY)
+    chkIndependent := CreateBehaviorSection(SettingsGui, &currentY)
+    cboDarkMode := CreateAppearanceSection(SettingsGui, &currentY)
+
+    ; Monitor section needs callback
+    OnAllMonitorsClick(ctrl, *) {
+        if (ctrl.Value = 1) {
+            EnabledMonitors := "*"
+        }
+    }
+    monitor := CreateMonitorSection(SettingsGui, &currentY, OnAllMonitorsClick)
+
     ; Buttons
-    ; ============================================
     currentY += 5
     SettingsGui.Add("Button", "x10 y" . currentY . " w85 Default", "Save").OnEvent("Click", (*) => SaveAndClose())
     SettingsGui.Add("Button", "x100 y" . currentY . " w85", "Cancel").OnEvent("Click", (*) => SettingsGui.Destroy())
     SettingsGui.Add("Button", "x190 y" . currentY . " w85", "Reset").OnEvent("Click", (*) => RestoreDefaultsClick())
     SettingsGui.Add("Button", "x290 y" . currentY . " w85", "Donate").OnEvent("Click", OpenDonate)
     currentY += 35
-    
+
     guiHeight := currentY + 5
-    
+
     ; Apply theme (title bar and background)
     ApplyGuiTheme(SettingsGui)
-    
+
     SettingsGui.Show("w395 h" . guiHeight)
-    
-    OnAllMonitorsClick(ctrl, *) {
-        global EnabledMonitors
-        if (ctrl.Value = 1) {
-            EnabledMonitors := "*"
-        }
-    }
-    
+
     RestoreDefaultsClick() {
-        edtDimmed.Value := DEFAULT_DimmedOpacity
-        edtBright.Value := DEFAULT_BrightOpacity
-        edtTrigger.Value := DEFAULT_TriggerZone
-        edtFadeDist.Value := DEFAULT_FadeDistance
+        opacity.edtDimmed.Value := DEFAULT_DimmedOpacity
+        opacity.edtBright.Value := DEFAULT_BrightOpacity
+        trigger.edtTrigger.Value := DEFAULT_TriggerZone
+        trigger.edtFadeDist.Value := DEFAULT_FadeDistance
         edtInterval.Value := DEFAULT_CheckInterval
         chkIndependent.Value := DEFAULT_IndependentMode ? 1 : 0
         cboDarkMode.Choose(1)
-        
-        if (monCount > 1) {
-            chkAllMonitors.Value := 1
-            for mc in monitorChecks {
+
+        if (monitor.monCount > 1) {
+            monitor.chkAllMonitors.Value := 1
+            for mc in monitor.monitorChecks {
                 mc.chk.Value := 1
             }
         }
-        
+
         MsgBox("Defaults restored. Click Save to apply.", "Reset", 64)
     }
-    
+
     SaveAndClose() {
         global EnabledMonitors, IndependentMode, DarkMode
         try {
-            DimmedOpacity := Integer(edtDimmed.Value)
-            BrightOpacity := Integer(edtBright.Value)
-            TriggerZone := Integer(edtTrigger.Value)
-            FadeDistance := Integer(edtFadeDist.Value)
+            DimmedOpacity := Integer(opacity.edtDimmed.Value)
+            BrightOpacity := Integer(opacity.edtBright.Value)
+            TriggerZone := Integer(trigger.edtTrigger.Value)
+            FadeDistance := Integer(trigger.edtFadeDist.Value)
             CheckInterval := Integer(edtInterval.Value)
             IndependentMode := chkIndependent.Value = 1
-            
+
             switch cboDarkMode.Value {
                 case 1:
                     DarkMode := "auto"
@@ -708,16 +829,16 @@ OpenSettings(*) {
                 default:
                     DarkMode := "auto"
             }
-            
+
             DimmedOpacity := Max(0, Min(255, DimmedOpacity))
             BrightOpacity := Max(0, Min(255, BrightOpacity))
-            
-            if (monCount > 1) {
-                if (chkAllMonitors.Value = 1) {
+
+            if (monitor.monCount > 1) {
+                if (monitor.chkAllMonitors.Value = 1) {
                     EnabledMonitors := "*"
                 } else {
                     enabledList := ""
-                    for mc in monitorChecks {
+                    for mc in monitor.monitorChecks {
                         if (mc.chk.Value = 1) {
                             if (enabledList != "") {
                                 enabledList .= ","
@@ -728,10 +849,10 @@ OpenSettings(*) {
                     EnabledMonitors := enabledList = "" ? "*" : enabledList
                 }
             }
-            
+
             SaveSettings()
             SetTimer(MonitorMouse, CheckInterval)
-            
+
             MsgBox("Settings saved!", "Success", 64)
             SettingsGui.Destroy()
         } catch as e {
@@ -753,6 +874,7 @@ DebugMonitors(*) {
         text .= "  Primary: " (mon.IsPrimary ? "Yes" : "No") "`n"
         text .= "  Full: (" mon.Left "," mon.Top ") to (" mon.Right "," mon.Bottom ")`n"
         text .= "  Taskbar: " mon.TaskbarPosition " (" mon.TaskbarSize "px)`n"
+        text .= "  Auto-Hide: " (mon.IsAutoHide ? "Yes" : "No") "`n"
         text .= "  Taskbar Hwnd: " (mon.TaskbarHwnd ? mon.TaskbarHwnd : "Not found") "`n`n"
     }
     
@@ -826,6 +948,13 @@ MonitorMouse() {
     
     ; Apply the calculated opacity
     SetMonitorOpacity(monNum, targetOpacity)
+
+    ; Update tray icon state periodically
+    static lastTrayUpdate := 0
+    if (A_TickCount - lastTrayUpdate > TRAY_UPDATE_INTERVAL_MS) {
+        UpdateTrayIconState()
+        lastTrayUpdate := A_TickCount
+    }
     
     LastX := currentX
     LastY := currentY

@@ -1,0 +1,18 @@
+1.3.1
+
+================================================================================
+VERSION MANAGEMENT
+================================================================================
+This file contains the current version number for BetterStartHide.
+
+When updating the version, ensure consistency across these files:
+- VERSION.txt (this file) - Single source of truth
+- BetterStartHide.ahk - Line 14: global VERSION := "x.x.x"
+- README.md - Line 3: **Version x.x.x**
+- installer/BetterStartHide-Setup.iss - Line 8: #define AppVersion "x.x.x"
+- Build.bat - Line 87: Installer output filename
+
+Version Format: MAJOR.MINOR.PATCH (Semantic Versioning)
+- MAJOR: Breaking changes
+- MINOR: New features, backward compatible
+- PATCH: Bug fixes, minor improvements

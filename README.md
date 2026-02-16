@@ -1,6 +1,6 @@
 # BetterStartHide
 
-**Version 1.3** - Simplified & Refined
+**Version 1.3.1** - Production Ready
 
 A better way to save your OLED from StartMenu burn-in.
 
@@ -25,7 +25,7 @@ BetterStartHide dims the Windows taskbar to near-invisibility when not in use, a
 
 ### Option 1: Installer (Recommended)
 
-1. Download `BetterStartHide-1.3-Setup.exe` from [Releases](https://github.com/knightfolk/BetterStartHide/releases)
+1. Download `BetterStartHide-1.3.1-Setup.exe` from [Releases](https://github.com/knightfolk/BetterStartHide/releases)
 2. Run the installer
 3. (Optional) Check "Launch when Windows starts" during installation
 4. Done! Your taskbar will dim automatically
@@ -96,6 +96,7 @@ Right-click the tray icon and select **Settings** to open the configuration wind
 |---------|---------|-------------|
 | Trigger Zone | 10 | Pixels from taskbar edge that are always bright |
 | Fade Distance | 100 | Distance over which gradual fade occurs |
+| Edge Threshold | 5 | Pixels from screen edge that trigger immediate reveal |
 
 #### Timing
 | Setting | Default | Description |
@@ -106,6 +107,7 @@ Right-click the tray icon and select **Settings** to open the configuration wind
 | Setting | Default | Description |
 |---------|---------|-------------|
 | Independent Taskbar Control | Enabled | Each monitor's taskbar reveals/hides independently based on mouse position |
+| Enabled Monitors | * (All) | Which monitors to control (* for all, or comma-separated list like "1,2,3") |
 
 #### Appearance
 | Setting | Default | Description |
@@ -157,7 +159,15 @@ BetterStartHide.ahk
 
 ## Version History
 
-### Version 1.3 (Current) - Simplified & Refined
+### Version 1.3.1 (Current) - Production Ready
+- **Build system improvements**: Environment-aware AutoHotkey path detection
+- **Documentation updates**: Added EnabledMonitors and EdgeThreshold settings to documentation
+- **Auto-hide detection**: Improved detection for auto-hidden taskbars
+- **Tray icon state**: Dynamic tooltip showing current dim/reveal state
+- **Donate link**: Now links to GitHub Sponsors
+- **Debug info**: Shows auto-hide status in Debug Monitors output
+
+### Version 1.3 - Simplified & Refined
 - **Simplified reveal logic**: Removed velocity detection - now uses pure distance-based opacity
 - **Streamlined settings**: Removed Exit Zone, Min Velocity, Hide Delay, Gradual Fade, Fade Out options
 - **Distance-based opacity**: Taskbar brightness smoothly transitions based on mouse distance
@@ -187,12 +197,39 @@ BetterStartHide.ahk
 ## Roadmap
 
 ### Version 1.4 (Planned)
-- Per-monitor opacity settings
-- Taskbar auto-hide detection improvements
+- Performance optimizations
+- Additional multi-monitor configuration options
 
 ### Version 2.0 (Future)
 - Desktop icon dimming feature
 
+## Troubleshooting
+
+### Taskbar not dimming
+- Ensure no other taskbar utilities are running that might conflict
+- Try "Dim All Taskbars" from the tray menu
+- Check if the taskbar is set to auto-hide in Windows Settings (auto-hidden taskbars may behave differently)
+
+### App not starting on Windows boot
+- If using the portable version, manually add a shortcut to the Startup folder:
+  - Press `Win + R`, type `shell:startup`, press Enter
+  - Create a shortcut to `BetterStartHide.exe` in this folder
+- For the installed version, reinstall and check "Launch when Windows starts"
+
+### Multi-monitor detection issues
+- Use "Debug Monitors" from the tray menu to see what monitors and taskbars are detected
+- Try clicking "Dim All Taskbars" then moving your mouse to each taskbar
+- Ensure your monitor arrangement is correct in Windows Settings → Display
+
+### Settings not saving
+- Check that `%AppData%\BetterStartHide\` folder exists and is writable
+- Use the "Reset" button in Settings to restore defaults
+- Try deleting the `Settings.ini` file and restarting the app
+
+### Settings file corrupted
+- Delete `%AppData%\BetterStartHide\Settings.ini`
+- Restart the app - it will create a new settings file with defaults
+
 ## License
 
-MIT License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

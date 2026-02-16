@@ -15,8 +15,28 @@ echo BetterStartHide Build Script
 echo ============================================
 echo.
 
-REM Set paths
-set "AHK_PATH=C:\Program Files\AutoHotkey\v2\AutoHotkey.exe"
+REM Read version from VERSION.txt
+set "VERSION_FILE=%~dp0VERSION.txt"
+if exist "%VERSION_FILE%" (
+    set /p APP_VERSION=<"%VERSION_FILE%"
+    REM Skip comment lines and get first non-empty line
+    for /f "usebackq tokens=*" %%a in ("%VERSION_FILE%") do (
+        set "APP_VERSION=%%a"
+        goto :got_version
+    )
+    :got_version
+) else (
+    set "APP_VERSION=1.3.1"
+)
+echo Version: %APP_VERSION%
+echo.
+
+REM Set paths - Try multiple locations for AutoHotkey
+set "AHK_PATH="
+if exist "%LOCALAPPDATA%\Programs\AutoHotkey\v2\AutoHotkey.exe" set "AHK_PATH=%LOCALAPPDATA%\Programs\AutoHotkey\v2\AutoHotkey.exe"
+if not defined AHK_PATH if exist "C:\Program Files\AutoHotkey\v2\AutoHotkey.exe" set "AHK_PATH=C:\Program Files\AutoHotkey\v2\AutoHotkey.exe"
+if not defined AHK_PATH if exist "C:\Program Files (x86)\AutoHotkey\v2\AutoHotkey.exe" set "AHK_PATH=C:\Program Files (x86)\AutoHotkey\v2\AutoHotkey.exe"
+if not defined AHK_PATH if exist "C:\Program Files\AutoHotkey\AutoHotkey.exe" set "AHK_PATH=C:\Program Files\AutoHotkey\AutoHotkey.exe"
 set "INNO_PATH=C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 set "PROJECT_DIR=%~dp0"
 set "OUTPUT_DIR=%PROJECT_DIR%installer\output"
@@ -80,7 +100,7 @@ echo Build completed successfully!
 echo ============================================
 echo.
 echo Compiled EXE: %PROJECT_DIR%BetterStartHide.exe
-echo Installer:    %OUTPUT_DIR%\BetterStartHide-1.1-Setup.exe
+echo Installer:    %OUTPUT_DIR%\BetterStartHide-%APP_VERSION%-Setup.exe
 echo.
 
 goto :success

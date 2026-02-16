@@ -5,7 +5,7 @@
 ; ============================================================================
 
 #define AppName "BetterStartHide"
-#define AppVersion "1.3"
+#define AppVersion "1.3.1"
 #define AppPublisher "BetterStartHide"
 #define AppURL "https://github.com/knightfolk/BetterStartHide"
 #define AppExeName "BetterStartHide.exe"
@@ -44,7 +44,6 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
-Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked; OnlyBelowVersion: 6.1; Check: not IsAdminInstallMode
 Name: "startup"; Description: "Launch {#AppName} when Windows starts"; GroupDescription: "Startup Options:"; Flags: unchecked
 
 [Files]
@@ -60,7 +59,6 @@ Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app
 Name: "{group}\{cm:ProgramOnTheWeb,{#AppName}}"; Filename: "{#AppURL}"
 Name: "{group}\{cm:UninstallProgram,{#AppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\{#AppIcon}"; Tasks: desktopicon
-Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\{#AppIcon}"; Tasks: quicklaunchicon
 
 [Registry]
 ; Startup entry (only if task selected)

@@ -6,3 +6,6 @@ Settings.ini
 
 # Installer output
 installer/output/
+
+# IDE/CLI settings
+.claude/
